@@ -1,2 +1,2 @@
-# mednotes-ai
-Agentic for medial assistance.
+# todos
+[ ] Create dir app(nextjs code) & agent (kestra stuff)
