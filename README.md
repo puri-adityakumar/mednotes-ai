@@ -4,6 +4,6 @@
 [x] Create pages for auth (singin, singup) pages
 [] Connect Supabase and auth 
 [] Create database table
-[x] Create dashboard page
-[x] create doctors page (aditya) 
+[] Create dashboard page patient
+[] create doctors page (aditya) 
 
