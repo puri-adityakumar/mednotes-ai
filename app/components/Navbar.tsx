@@ -21,7 +21,7 @@ export function Navbar() {
                             Sign In
                         </Link>
                         <Link
-                            href="/dashboard/patient/appointments/new"
+                            href="/patient"
                             className="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
                         >
                             Book Appointment
