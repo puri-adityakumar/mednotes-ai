@@ -1,6 +1,6 @@
 # todos
 [x] Create dir app(nextjs code) & agent (kestra stuff)
-[] basic landing page
+[x] basic landing page
 [] Create pages for auth (singin, singup) pages
 [] Connect Supabase and auth 
 [] Create database table
