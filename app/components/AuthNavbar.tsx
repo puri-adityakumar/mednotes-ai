@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { LogoutButton } from './LogoutButton'
 import Link from 'next/link'
+import { SidebarTrigger } from './ui/sidebar'
+import { ThemeToggle } from './ThemeToggle'
 
 export async function AuthNavbar() {
     const supabase = await createClient()
@@ -25,27 +27,22 @@ export async function AuthNavbar() {
 
     return (
         <nav className="border-b border-gray-200 dark:border-gray-800 bg-background/80 backdrop-blur-md sticky top-0 z-50">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center h-16">
-                    <div className="flex-shrink-0 flex items-center">
-                        <Link href={profile?.role === 'doctor' ? '/doctor' : '/patient'} className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-teal-500 bg-clip-text text-transparent">
-                            MedNotes AI
-                        </Link>
-                    </div>
-                    <div className="hidden md:flex items-center space-x-6">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {displayName}
-                        </span>
-                        <LogoutButton />
-                    </div>
-                    {/* Mobile menu button (placeholder) */}
-                    <div className="md:hidden">
-                        <button className="p-2 rounded-md text-gray-700 hover:text-blue-600">
-                            <span className="sr-only">Open menu</span>
-                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                            </svg>
-                        </button>
+            <div className="w-full px-4 sm:px-6 lg:px-8">
+                <div className="flex items-center justify-between h-16 gap-4">
+                    <SidebarTrigger className="-ml-1" />
+                    <div className="flex items-center gap-4 md:gap-6">
+                    
+                        <div className="hidden md:flex items-center gap-4">
+                            <ThemeToggle />
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {displayName}
+                            </span>
+                            <LogoutButton />
+                        </div>
+                        <div className="md:hidden flex items-center gap-2">
+                            <ThemeToggle />
+                            <LogoutButton />
+                        </div>
                     </div>
                 </div>
             </div>
