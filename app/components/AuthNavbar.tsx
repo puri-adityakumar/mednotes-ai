@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { LogoutButton } from './LogoutButton'
 import Link from 'next/link'
-import { SidebarTrigger } from './ui/sidebar'
+
 import { ThemeToggle } from './ThemeToggle'
 
 export async function AuthNavbar() {
@@ -29,9 +29,9 @@ export async function AuthNavbar() {
         <nav className="border-b border-gray-200 dark:border-gray-800 bg-background/80 backdrop-blur-md sticky top-0 z-50">
             <div className="w-full px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16 gap-4">
-                    <SidebarTrigger className="-ml-1" />
+                    <div className="flex-1"></div>
                     <div className="flex items-center gap-4 md:gap-6">
-                    
+
                         <div className="hidden md:flex items-center gap-4">
                             <ThemeToggle />
                             <span className="text-sm text-gray-600 dark:text-gray-400">

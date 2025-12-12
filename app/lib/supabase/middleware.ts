@@ -53,6 +53,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   // If no user and trying to access protected routes, redirect to login
+  // If no user and trying to access protected routes, redirect to login
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
@@ -60,10 +61,35 @@ export async function updateSession(request: NextRequest) {
     (request.nextUrl.pathname.startsWith('/patient') ||
       request.nextUrl.pathname.startsWith('/doctor'))
   ) {
-    // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
+  }
+
+  // Strict Role Enforcement for Authenticated Users
+  if (user && (request.nextUrl.pathname.startsWith('/doctor') || request.nextUrl.pathname.startsWith('/patient'))) {
+    // Fetch profile to check role
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile) {
+      // If doctor tries to access patient routes
+      if (profile.role === 'doctor' && request.nextUrl.pathname.startsWith('/patient')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/doctor'
+        return NextResponse.redirect(url)
+      }
+
+      // If patient tries to access doctor routes
+      if (profile.role !== 'doctor' && request.nextUrl.pathname.startsWith('/doctor')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/patient'
+        return NextResponse.redirect(url)
+      }
+    }
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is. If you're

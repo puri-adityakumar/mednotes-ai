@@ -1,25 +1,13 @@
 import Link from "next/link";
 import { AuthNavbar } from "@/components/AuthNavbar";
-import { DashboardSidebar, patientMenuItems } from "@/components/DashboardSidebar";
-import { DashboardContent } from "@/components/DashboardContent";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 export default function PatientDashboard() {
     return (
-        <SidebarProvider>
-            <DashboardSidebar
-                title="MedNotes AI"
-                titleHref="/patient"
-                titleColor="blue"  
-                menuItems={patientMenuItems}
-                activeColor="blue"
-            />
-            <SidebarInset className="flex flex-col min-h-svh">
-                <DashboardContent>
-                    <AuthNavbar />
-                  
-                    <div className="flex-1 overflow-y-auto">
-                        <div className="w-full p-8">
+        <div className="flex flex-col min-h-screen bg-background">
+            <AuthNavbar />
+            <main className="flex-1 overflow-y-auto">
+                <div className="w-full p-8">
+                    <div className="max-w-5xl mx-auto">
                         <div className="mb-8 flex justify-between items-center">
                             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Patient Dashboard</h1>
                             <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-zinc-800 flex items-center justify-center">
@@ -47,10 +35,9 @@ export default function PatientDashboard() {
                                 Demo: Book Appointment (Coming Soon)
                             </Link>
                         </div>
-                        </div>
                     </div>
-                </DashboardContent>
-            </SidebarInset>
-            </SidebarProvider>
+                </div>
+            </main>
+        </div>
     );
 }

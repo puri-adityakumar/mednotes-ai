@@ -1,0 +1,75 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.appointments (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  patient_id uuid NOT NULL,
+  doctor_id uuid NOT NULL,
+  appointment_date timestamp with time zone NOT NULL,
+  status character varying NOT NULL DEFAULT 'scheduled'::character varying CHECK (status::text = ANY (ARRAY['scheduled'::character varying, 'completed'::character varying, 'cancelled'::character varying, 'in_progress'::character varying]::text[])),
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT appointments_pkey PRIMARY KEY (id),
+  CONSTRAINT appointments_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.profiles(id),
+  CONSTRAINT appointments_doctor_id_fkey FOREIGN KEY (doctor_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.chat_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  consultation_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  user_type character varying NOT NULL CHECK (user_type::text = ANY (ARRAY['patient'::character varying, 'doctor'::character varying]::text[])),
+  message text NOT NULL,
+  ai_response text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_messages_consultation_id_fkey FOREIGN KEY (consultation_id) REFERENCES public.consultations(id),
+  CONSTRAINT chat_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.consultations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  appointment_id uuid NOT NULL UNIQUE,
+  audio_url text,
+  transcript text,
+  ai_summary text,
+  doctor_notes text,
+  duration_minutes integer,
+  consultation_date timestamp with time zone NOT NULL,
+  kestra_execution_id character varying,
+  processing_status character varying DEFAULT 'pending'::character varying CHECK (processing_status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT consultations_pkey PRIMARY KEY (id),
+  CONSTRAINT consultations_appointment_id_fkey FOREIGN KEY (appointment_id) REFERENCES public.appointments(id)
+);
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  patient_id uuid NOT NULL,
+  consultation_id uuid,
+  document_type character varying NOT NULL CHECK (document_type::text = ANY (ARRAY['prescription'::character varying, 'report'::character varying, 'scan'::character varying, 'lab_result'::character varying, 'other'::character varying]::text[])),
+  file_url text NOT NULL,
+  ocr_text text,
+  ai_extracted_data jsonb,
+  upload_date timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  kestra_execution_id character varying,
+  processing_status character varying DEFAULT 'pending'::character varying CHECK (processing_status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])),
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT documents_patient_id_fkey FOREIGN KEY (patient_id) REFERENCES public.profiles(id),
+  CONSTRAINT documents_consultation_id_fkey FOREIGN KEY (consultation_id) REFERENCES public.consultations(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text NOT NULL,
+  first_name text,
+  last_name text,
+  role text NOT NULL CHECK (role = ANY (ARRAY['patient'::text, 'doctor'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  phone character varying,
+  date_of_birth date,
+  specialization character varying,
+  doctor_id character varying,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
