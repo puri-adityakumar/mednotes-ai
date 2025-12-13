@@ -1,6 +1,18 @@
+'use client';
+
+import { useState } from 'react';
 import { AuthNavbar } from "@/components/AuthNavbar";
+import { NewRecordingPanel } from "@/components/doctors/NewRecordingPanel";
+import { RecordingsList } from "@/components/doctors/RecordingsList";
 
 export default function RecordingPage() {
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const handleRecordingUploaded = () => {
+        // Trigger refresh of recordings list
+        setRefreshTrigger(prev => prev + 1);
+    };
+
     return (
         <div className="flex flex-col min-h-screen bg-background">
             <AuthNavbar />
@@ -16,24 +28,13 @@ export default function RecordingPage() {
                             </p>
                         </div>
 
-                        {/* Placeholder for NewRecordingPanel - Phase 2 */}
-                        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-8 shadow-sm">
-                            <div className="text-center text-gray-500 dark:text-gray-400">
-                                <p className="text-lg font-medium mb-2">🎙️ New Recording Panel</p>
-                                <p className="text-sm">Coming in Phase 2</p>
-                            </div>
-                        </div>
+                        <NewRecordingPanel onRecordingUploaded={handleRecordingUploaded} />
 
-                        {/* Placeholder for RecordingsList - Phase 2 */}
-                        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-8 shadow-sm">
-                            <div className="text-center text-gray-500 dark:text-gray-400">
-                                <p className="text-lg font-medium mb-2">📋 Recordings List</p>
-                                <p className="text-sm">Coming in Phase 2</p>
-                            </div>
-                        </div>
+                        <RecordingsList refreshTrigger={refreshTrigger} />
                     </div>
                 </div>
             </main>
         </div>
     );
 }
+
