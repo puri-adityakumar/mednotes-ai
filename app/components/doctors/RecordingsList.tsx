@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { createClient } from '@/lib/supabase/client';
 import { deleteRecording, type Recording } from '@/app/actions/recordings';
+import { transcribeConsultation } from '@/lib/transcribe';
 import { toast } from 'sonner';
 
 interface RecordingsListProps {
@@ -39,6 +40,7 @@ export function RecordingsList({ refreshTrigger }: RecordingsListProps) {
     const [recordings, setRecordings] = useState<Recording[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [transcribingId, setTranscribingId] = useState<string | null>(null);
 
     const fetchRecordings = useCallback(async () => {
         setIsLoading(true);
@@ -194,6 +196,31 @@ export function RecordingsList({ refreshTrigger }: RecordingsListProps) {
         );
     };
 
+    const handleTranscribe = async (consultationId: string) => {
+        setTranscribingId(consultationId);
+        toast.loading('Starting transcription...', { id: 'transcribe-toast' });
+
+        try {
+            const result = await transcribeConsultation(consultationId);
+
+            if (result.success) {
+                toast.success('Transcription completed successfully!', { id: 'transcribe-toast' });
+                // Optimistically update the status
+                setRecordings(prev => prev.map(rec =>
+                    rec.id === consultationId
+                        ? { ...rec, processing_status: 'completed', transcript: result.transcript || null }
+                        : rec
+                ));
+            } else {
+                toast.error(`Transcription failed: ${result.message}`, { id: 'transcribe-toast' });
+            }
+        } catch (error: any) {
+            toast.error(`Error: ${error.message}`, { id: 'transcribe-toast' });
+        } finally {
+            setTranscribingId(null);
+        }
+    };
+
     const handlePlay = (audioUrl: string) => {
         window.open(audioUrl, '_blank');
     };
@@ -326,6 +353,18 @@ export function RecordingsList({ refreshTrigger }: RecordingsListProps) {
 
                                         {/* Action Buttons - Desktop */}
                                         <div className="hidden sm:flex items-center gap-2">
+                                            {recording.processing_status === 'pending' && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleTranscribe(recording.id)}
+                                                    disabled={transcribingId === recording.id}
+                                                    className="gap-1.5 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                                                >
+                                                    <RefreshCw className={`w-4 h-4 ${transcribingId === recording.id ? 'animate-spin' : ''}`} />
+                                                    {transcribingId === recording.id ? 'Transcribing...' : 'Transcribe'}
+                                                </Button>
+                                            )}
                                             <Button
                                                 size="sm"
                                                 variant="outline"
@@ -358,6 +397,16 @@ export function RecordingsList({ refreshTrigger }: RecordingsListProps) {
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end" className="w-48">
+                                                {recording.processing_status === 'pending' && (
+                                                    <DropdownMenuItem
+                                                        onClick={() => handleTranscribe(recording.id)}
+                                                        disabled={transcribingId === recording.id}
+                                                        className="gap-2 cursor-pointer sm:hidden"
+                                                    >
+                                                        <RefreshCw className={`w-4 h-4 ${transcribingId === recording.id ? 'animate-spin' : ''}`} />
+                                                        Transcribe
+                                                    </DropdownMenuItem>
+                                                )}
                                                 <DropdownMenuItem
                                                     onClick={() => handlePlay(recording.audio_url)}
                                                     className="gap-2 cursor-pointer sm:hidden"
