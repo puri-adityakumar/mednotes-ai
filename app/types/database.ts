@@ -101,6 +101,22 @@ export interface ChatMessageWithUser extends ChatMessage {
   consultation: Consultation;
 }
 
+// Booking Chat Messages
+export interface BookingChat {
+  id: string; // UUID
+  appointment_id: string | null; // References appointments.id (nullable initially)
+  patient_id: string; // References profiles.id
+  message: string; // Patient message
+  ai_response: string; // AI assistant response
+  created_at: string; // ISO timestamp
+}
+
+// Booking Chat with joined data
+export interface BookingChatWithRelations extends BookingChat {
+  appointment: Appointment | null;
+  patient: Profile;
+}
+
 // AI Extracted Data Structure (example for documents)
 export interface ExtractedDocumentData {
   medications?: Array<{

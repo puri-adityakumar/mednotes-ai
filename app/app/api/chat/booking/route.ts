@@ -1,0 +1,729 @@
+import { NextRequest } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { google } from '@ai-sdk/google';
+import { groq } from '@ai-sdk/groq';
+import { streamText, convertToModelMessages, UIMessage, tool, stepCountIs, customProvider } from 'ai';
+import { z } from 'zod';
+import moment from 'moment-timezone';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const { messages }: { messages: UIMessage[] } = await request.json();
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return new Response('Messages are required', { status: 400 });
+    }
+
+    // Get the last user message for saving to database
+    const lastMessage = messages[messages.length - 1];
+    const textPart = lastMessage?.parts?.find((p: any) => p.type === 'text');
+    const userMessage = (textPart && 'text' in textPart ? textPart.text : '') || '';
+
+    // Get patient profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, email')
+      .eq('id', user.id)
+      .single();
+
+    // Get existing booking chat messages for context
+    const { data: chatHistory } = await supabase
+      .from('booking_chat')
+      .select('message, ai_response')
+      .eq('patient_id', user.id)
+      .is('appointment_id', null) // Only get messages not yet linked to an appointment
+      .order('created_at', { ascending: true })
+      .limit(10); // Last 10 messages for context
+
+    // Convert UI messages to model messages format
+    const modelMessages = convertToModelMessages(messages);
+
+    // Get available doctors for appointment booking
+    const { data: doctors, error: doctorsError } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, specialization')
+      .eq('role', 'doctor')
+      .limit(5);
+    
+    if (doctorsError) {
+      console.error('Error fetching doctors:', doctorsError);
+    }
+
+    const doctorsList = doctors?.map(d => 
+      `- Dr. ${d.first_name} ${d.last_name} | Specialization: ${d.specialization || 'General Practitioner'}`
+    ).join('\n') || 'No doctors available';
+
+    // Create AI prompt with context - simplified and more conversational
+    const systemPrompt = `You are a friendly and helpful AI assistant helping ${profile?.first_name || 'the patient'} book a medical appointment.
+
+Available doctors:
+${doctorsList}
+
+🚨 CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
+
+1. **YOU MUST USE TOOLS TO BOOK APPOINTMENTS** - When the patient provides:
+   - Doctor name (e.g., "Dr. Shekhar Maurya" or "Shekhar Maurya")
+   - Date (e.g., "15 december 2025", "tomorrow", "2025-12-15")
+   - Time (e.g., "12 pm", "12:00", "14:00")
+   
+   YOU MUST IMMEDIATELY call the bookAppointment tool. DO NOT just generate text saying you're booking.
+
+2. **NEVER SAY YOU'RE BOOKING WITHOUT CALLING THE TOOL** - Phrases like:
+   - "I'll book that for you"
+   - "Let me book your appointment"
+   - "Your appointment has been booked"
+   
+   Are FORBIDDEN unless you have ALREADY called bookAppointment and received success=true.
+
+3. **ALWAYS READ TOOL RESULTS** - After calling bookAppointment:
+   - If result.success === true: Tell the patient their appointment is confirmed with the exact details from result.message
+   - If result.success === false: Explain the error from result.error and help resolve it
+
+4. **WORKFLOW**:
+   - Step 1: Collect doctor name, date, and time through conversation
+   - Step 2: When you have all three, IMMEDIATELY call bookAppointment tool (don't ask for confirmation)
+   - Step 3: Read the tool result and communicate the actual outcome to the patient
+
+5. **DATE/TIME FORMATS** - Accept ANY format:
+   - "15 december 2025, 12 pm"
+   - "tomorrow at 2pm"
+   - "2025-12-15 at 14:00"
+   - "next Monday 3:00 PM"
+   The system handles all parsing automatically.
+
+REMEMBER: Text responses do NOT create appointments. Only calling bookAppointment tool creates appointments.`;
+
+    // Tool to check doctor availability
+    const checkAvailabilityTool = tool({
+      description: 'Check if a doctor is available at a specific date and time. Use this to verify availability before booking. Accepts dates and times in any format.',
+      inputSchema: z.object({
+        doctorName: z.string().describe('The full name of the doctor (e.g., "John Smith", "Dr. John Smith", or just "John")'),
+        appointmentDate: z.string().describe('The appointment date in any format (e.g., "2024-12-25", "tomorrow", "12/25/2024")'),
+        appointmentTime: z.string().describe('The appointment time in any format (e.g., "2pm", "14:30", "2:00 PM")'),
+      }),
+      execute: async ({ doctorName, appointmentDate, appointmentTime }) => {
+        try {
+          // Parse date/time using moment with IST timezone to ensure consistency
+          const combined = `${appointmentDate.trim()} ${appointmentTime.trim()}`;
+          // Parse in IST timezone (Asia/Kolkata) to ensure 12 PM stays as 12 PM IST
+          const appointmentMoment = moment.tz(combined, 'Asia/Kolkata');
+          
+          if (!appointmentMoment.isValid()) {
+            return {
+              available: false,
+              reason: 'Invalid date or time format.',
+            };
+          }
+
+          // Format as ISO string with timezone for database
+          const appointmentDateTimeISO = appointmentMoment.format();
+
+          // Find doctor by name (flexible matching)
+          const cleanDoctorName = doctorName
+            .replace(/^Dr\.?\s*/i, '')
+            .trim()
+            .toLowerCase();
+          
+          const { data: allDoctors, error: doctorsFetchError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, role')
+            .eq('role', 'doctor');
+
+          if (doctorsFetchError) {
+            console.error('Error fetching doctors:', doctorsFetchError);
+            return {
+              available: false,
+              reason: 'Unable to fetch doctor information. Please try again.',
+            };
+          }
+
+          const doctor = allDoctors?.find(d => {
+            const fullName = `${d.first_name || ''} ${d.last_name || ''}`.trim().toLowerCase();
+            const firstName = (d.first_name || '').toLowerCase();
+            const lastName = (d.last_name || '').toLowerCase();
+            const nameParts = cleanDoctorName.split(/\s+/);
+            
+            // Exact match
+            if (fullName === cleanDoctorName) return true;
+            // Contains match
+            if (fullName.includes(cleanDoctorName) || cleanDoctorName.includes(fullName)) return true;
+            // First and last name match
+            if (cleanDoctorName.includes(firstName) && cleanDoctorName.includes(lastName)) return true;
+            // Partial match - if user provides just first or last name
+            if (nameParts.length === 1 && (firstName === nameParts[0] || lastName === nameParts[0])) return true;
+            // Match if all parts of the name are found
+            if (nameParts.every(part => fullName.includes(part))) return true;
+            
+            return false;
+          });
+
+          if (!doctor) {
+            const availableDoctors = allDoctors?.map(d => `Dr. ${d.first_name} ${d.last_name}`).join(', ') || 'none';
+            return {
+              available: false,
+              reason: `Doctor "${doctorName}" not found. Available doctors: ${availableDoctors}.`,
+            };
+          }
+
+          // Check availability using the database function
+          const { data: availabilityCheck, error: availabilityError } = await supabase
+            .rpc('check_doctor_availability', {
+              p_doctor_id: doctor.id,
+              p_appointment_date: appointmentDateTimeISO,
+              p_appointment_duration_minutes: 30,
+            });
+
+          if (availabilityError) {
+            console.error('Error checking availability:', availabilityError);
+            return {
+              available: false,
+              reason: 'Unable to check availability. Please try again.',
+            };
+          }
+
+          return {
+            available: availabilityCheck?.available || false,
+            reason: availabilityCheck?.reason || 'Availability check completed',
+            suggestedAction: availabilityCheck?.available 
+              ? 'This time slot is available. You can proceed with booking.'
+              : 'Please suggest an alternative time slot to the patient.',
+          };
+        } catch (error) {
+          console.error('Error in checkAvailability tool:', error);
+          return {
+            available: false,
+            reason: 'An error occurred while checking availability.',
+          };
+        }
+      },
+    });
+
+    // Tool to book appointment
+    const bookAppointmentTool = tool({
+      description: 'REQUIRED: Use this tool to actually book an appointment. This is the ONLY way to create an appointment - you MUST call this tool when the patient provides doctor name, date, and time. Do NOT just say you are booking - you must call this tool. The tool will automatically check availability before booking. Accepts dates and times in any format.',
+      inputSchema: z.object({
+        doctorName: z.string().describe('The full name of the doctor (e.g., "John Smith", "Dr. John Smith", or just "John")'),
+        appointmentDate: z.string().describe('The appointment date in any format (e.g., "2024-12-25", "tomorrow", "12/25/2024", "15 december 2025")'),
+        appointmentTime: z.string().describe('The appointment time in any format (e.g., "2pm", "14:30", "2:00 PM", "12 pm")'),
+        notes: z.string().optional().describe('Any additional notes or reason for the appointment'),
+      }),
+      execute: async ({ doctorName, appointmentDate, appointmentTime, notes }) => {
+        console.log('🔧 bookAppointment tool called with:', { doctorName, appointmentDate, appointmentTime, notes });
+        try {
+          // Parse date/time using moment with IST timezone to ensure consistency
+          const combined = `${appointmentDate.trim()} ${appointmentTime.trim()}`;
+          // Parse in IST timezone (Asia/Kolkata) to ensure 12 PM stays as 12 PM IST
+          const appointmentMoment = moment.tz(combined, 'Asia/Kolkata');
+          
+          if (!appointmentMoment.isValid()) {
+            console.log('❌ Invalid date format');
+            return {
+              success: false,
+              error: 'Invalid date or time format.',
+            };
+          }
+          
+          // Format as ISO string with timezone for database
+          const appointmentDateTimeISO = appointmentMoment.format();
+          
+          console.log('✅ Date created with moment (IST):', {
+            local: appointmentMoment.format('YYYY-MM-DD HH:mm:ss'),
+            iso: appointmentDateTimeISO,
+            timezone: appointmentMoment.format('Z'),
+          });
+          
+          // Find doctor by name (flexible matching)
+          const cleanDoctorName = doctorName
+            .replace(/^Dr\.?\s*/i, '')
+            .trim()
+            .toLowerCase();
+          console.log('🔍 Looking for doctor:', cleanDoctorName);
+          
+          const { data: allDoctors, error: doctorsFetchError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, role')
+            .eq('role', 'doctor');
+
+          if (doctorsFetchError) {
+            console.error('❌ Error fetching doctors:', doctorsFetchError);
+            return {
+              success: false,
+              error: 'Unable to fetch doctor information. Please try again.',
+            };
+          }
+
+          console.log('👨‍⚕️ Found doctors:', allDoctors?.map(d => `${d.first_name} ${d.last_name}`));
+
+          const doctor = allDoctors?.find(d => {
+            const fullName = `${d.first_name || ''} ${d.last_name || ''}`.trim().toLowerCase();
+            const firstName = (d.first_name || '').toLowerCase();
+            const lastName = (d.last_name || '').toLowerCase();
+            const nameParts = cleanDoctorName.split(/\s+/);
+            
+            // Exact match
+            if (fullName === cleanDoctorName) return true;
+            // Contains match
+            if (fullName.includes(cleanDoctorName) || cleanDoctorName.includes(fullName)) return true;
+            // First and last name match
+            if (cleanDoctorName.includes(firstName) && cleanDoctorName.includes(lastName)) return true;
+            // Partial match - if user provides just first or last name
+            if (nameParts.length === 1 && (firstName === nameParts[0] || lastName === nameParts[0])) return true;
+            // Match if all parts of the name are found
+            if (nameParts.every(part => fullName.includes(part))) return true;
+            
+            return false;
+          });
+
+          if (!doctor) {
+            const availableDoctors = allDoctors?.map(d => `Dr. ${d.first_name} ${d.last_name}`).join(', ') || 'none';
+            console.log('❌ Doctor not found. Available:', availableDoctors);
+            return {
+              success: false,
+              error: `Doctor "${doctorName}" not found. Available doctors: ${availableDoctors}. Please try again with one of these names.`,
+            };
+          }
+
+          console.log('✅ Doctor found:', { id: doctor.id, name: `${doctor.first_name} ${doctor.last_name}` });
+          const doctorId = doctor.id;
+
+          // Check doctor availability
+          console.log('🔍 Checking availability for:', {
+            doctorId,
+            appointmentDate: appointmentDateTimeISO
+          });
+          const { data: availabilityCheck, error: availabilityError } = await supabase
+            .rpc('check_doctor_availability', {
+              p_doctor_id: doctorId,
+              p_appointment_date: appointmentDateTimeISO,
+              p_appointment_duration_minutes: 30, // Default 30-minute appointments
+            });
+
+          if (availabilityError) {
+            console.error('❌ Error checking doctor availability:', availabilityError);
+            return {
+              success: false,
+              error: 'Unable to verify doctor availability. Please try again.',
+            };
+          }
+
+          console.log('📊 Availability check result:', availabilityCheck);
+
+          // Check if doctor is available
+          if (!availabilityCheck?.available) {
+            console.log('❌ Doctor not available:', availabilityCheck?.reason);
+            return {
+              success: false,
+              error: availabilityCheck?.reason || 'Doctor is not available at this time. Please choose a different time slot.',
+            };
+          }
+
+          console.log('✅ Doctor is available, creating appointment...');
+
+          // Create appointment
+          console.log('💾 Creating appointment with data:', {
+            patient_id: user.id,
+            doctor_id: doctorId,
+            appointment_date: appointmentDateTimeISO,
+            status: 'scheduled',
+            notes: notes || null,
+          });
+          const { data: appointment, error: appointmentError } = await supabase
+            .from('appointments')
+            .insert({
+              patient_id: user.id,
+              doctor_id: doctorId,
+              appointment_date: appointmentDateTimeISO,
+              status: 'scheduled',
+              notes: notes || null,
+            })
+            .select()
+            .single();
+
+          if (appointmentError) {
+            console.error('❌ Error creating appointment:', appointmentError);
+            // Provide more specific error message
+            const errorMsg = appointmentError.message || 'Failed to create appointment';
+            return {
+              success: false,
+              error: `Unable to create appointment: ${errorMsg}. Please try again or contact support.`,
+            };
+          }
+
+          if (!appointment) {
+            console.log('❌ Appointment creation returned no data');
+            return {
+              success: false,
+              error: 'Appointment creation failed. Please try again.',
+            };
+          }
+
+          console.log('✅ Appointment created successfully:', appointment.id);
+
+          // Link booking chat messages to the appointment (non-blocking)
+          try {
+            await supabase
+              .from('booking_chat')
+              .update({ appointment_id: appointment.id })
+              .eq('patient_id', user.id)
+              .is('appointment_id', null);
+          } catch (linkError) {
+            console.error('Error linking chat to appointment:', linkError);
+            // Don't fail the booking if linking fails
+          }
+
+          // Format date and time for display using moment
+          const formattedDate = appointmentMoment.format('dddd, MMMM Do, YYYY');
+          const formattedTime = appointmentMoment.format('h:mm A');
+
+          const result = {
+            success: true,
+            appointmentId: appointment.id,
+            message: `✅ Appointment successfully booked! You have an appointment with Dr. ${doctor.first_name} ${doctor.last_name} on ${formattedDate} at ${formattedTime}. Your appointment ID is ${appointment.id}.`,
+          };
+          console.log('✅ bookAppointment tool SUCCESS:', result);
+          return result;
+        } catch (error) {
+          console.error('❌ Error in bookAppointment tool:', error);
+          const errorResult = {
+            success: false,
+            error: 'An error occurred while booking the appointment. Please try again.',
+          };
+          console.log('❌ bookAppointment tool ERROR result:', errorResult);
+          return errorResult;
+        }
+      },
+    });
+
+    // Helper function to create stream with onFinish callback
+    const createStreamWithCallback = (model: any) => {
+      return streamText({
+        model,
+        system: systemPrompt,
+        messages: modelMessages,
+        tools: {
+          checkAvailability: checkAvailabilityTool,
+          bookAppointment: bookAppointmentTool,
+        },
+        stopWhen: stepCountIs(10), // Allow up to 10 steps for tool calls
+        maxRetries: 0, // Disable retries so we can catch errors immediately and fallback
+        onStepFinish: async ({ text, toolCalls, toolResults }) => {
+          console.log(`📊 Step finished:`, {
+            hasText: !!text,
+            toolCallsCount: toolCalls?.length || 0,
+            toolResultsCount: toolResults?.length || 0,
+          });
+          
+          if (toolCalls && toolCalls.length > 0) {
+            console.log('🔧 Tool calls in this step:', toolCalls.map(tc => ({
+              toolName: tc.toolName,
+              toolCallId: tc.toolCallId,
+            })));
+          }
+          
+          if (toolResults && toolResults.length > 0) {
+            console.log('✅ Tool results in this step:', toolResults.map(tr => ({
+              toolName: tr.toolName,
+              toolCallId: tr.toolCallId,
+              output: (tr as any).output || (tr as any).result,
+            })));
+          }
+        },
+        onFinish: async ({ text, toolResults, steps }) => {
+          // Save the conversation to database after streaming completes
+          try {
+            console.log('🏁 Final onFinish called:', {
+              textLength: text?.length || 0,
+              toolResultsCount: toolResults?.length || 0,
+              stepsCount: steps?.length || 0,
+            });
+
+            // Log tool results for debugging
+            if (toolResults && toolResults.length > 0) {
+              console.log('✅ Final tool results:', JSON.stringify(toolResults, null, 2));
+            } else {
+              console.log('⚠️ No tool results in onFinish');
+            }
+
+            // Extract tool results from steps (they're often only in steps, not in toolResults)
+            let allToolResults: any[] = toolResults || [];
+            if (steps && steps.length > 0) {
+              const stepToolResults = steps.flatMap(step => {
+                // Tool results can be in step.toolResults or step.content (as tool-result parts)
+                const results = (step.toolResults || []) as any[];
+                const contentResults = (step.content || [])
+                  .filter((part: any) => part.type === 'tool-result')
+                  .map((part: any) => ({
+                    toolName: part.toolName,
+                    toolCallId: part.toolCallId,
+                    output: part.output,
+                  }));
+                return [...results, ...contentResults];
+              });
+              
+              console.log('📋 Tool results from steps:', stepToolResults.length);
+              if (stepToolResults.length > 0) {
+                console.log('✅ All tool results from steps:', JSON.stringify(stepToolResults, null, 2));
+                // Merge step results with onFinish results (prefer step results as they're more complete)
+                allToolResults = stepToolResults.length > 0 ? stepToolResults : allToolResults;
+              }
+            }
+
+            // Check if appointment was created via tool call
+            const appointmentResult = allToolResults.find(
+              (result: any) => result.toolName === 'bookAppointment'
+            ) as any;
+            
+            // Tool results use 'output' property, but some versions might use 'result'
+            const toolOutput = appointmentResult?.output || appointmentResult?.result;
+            const appointmentId = toolOutput?.appointmentId || null;
+            
+            if (appointmentResult) {
+              console.log('✅ Appointment booking result found:', toolOutput);
+            } else {
+              console.log('❌ No appointment result found in toolResults or steps');
+            }
+
+            await supabase
+              .from('booking_chat')
+              .insert({
+                patient_id: user.id,
+                message: userMessage,
+                ai_response: text,
+                appointment_id: appointmentId,
+              });
+          } catch (dbError) {
+            console.error('Error saving booking chat:', dbError);
+            // Continue even if DB save fails
+          }
+        },
+      });
+    };
+
+    // Track if Google failed so we can fallback to Groq
+    let googleFailed = false;
+
+    // Try Google first with error handler
+    const googleResult = streamText({
+      model: google('gemini-2.5-flash'),
+      system: systemPrompt,
+      messages: modelMessages,
+      tools: {
+        checkAvailability: checkAvailabilityTool,
+        bookAppointment: bookAppointmentTool,
+      },
+      stopWhen: stepCountIs(10),
+      maxRetries: 0,
+      onError: ({ error }) => {
+        console.error('Google model error detected, will fallback to Groq:', error);
+        googleFailed = true;
+      },
+      onStepFinish: async ({ text, toolCalls, toolResults }) => {
+        console.log(`📊 Google Step finished:`, {
+          hasText: !!text,
+          toolCallsCount: toolCalls?.length || 0,
+          toolResultsCount: toolResults?.length || 0,
+        });
+        
+        if (toolCalls && toolCalls.length > 0) {
+          console.log('🔧 Google tool calls in this step:', toolCalls.map(tc => ({
+            toolName: tc.toolName,
+            toolCallId: tc.toolCallId,
+          })));
+        }
+        
+        if (toolResults && toolResults.length > 0) {
+          console.log('✅ Google tool results in this step:', toolResults.map(tr => ({
+            toolName: tr.toolName,
+            toolCallId: tr.toolCallId,
+            output: (tr as any).output || (tr as any).result,
+          })));
+        }
+      },
+      onFinish: async ({ text, toolResults, steps }) => {
+        // Save the conversation to database after streaming completes
+        try {
+          console.log('🏁 Google final onFinish called:', {
+            textLength: text?.length || 0,
+            toolResultsCount: toolResults?.length || 0,
+            stepsCount: steps?.length || 0,
+          });
+
+          // Log tool results for debugging
+          if (toolResults && toolResults.length > 0) {
+            console.log('✅ Google final tool results:', JSON.stringify(toolResults, null, 2));
+          } else {
+            console.log('⚠️ Google: No tool results in onFinish');
+          }
+
+          // Extract tool results from steps (they're often only in steps, not in toolResults)
+          let allToolResults: any[] = toolResults || [];
+          if (steps && steps.length > 0) {
+            const stepToolResults = steps.flatMap(step => {
+              // Tool results can be in step.toolResults or step.content (as tool-result parts)
+              const results = (step.toolResults || []) as any[];
+              const contentResults = (step.content || [])
+                .filter((part: any) => part.type === 'tool-result')
+                .map((part: any) => ({
+                  toolName: part.toolName,
+                  toolCallId: part.toolCallId,
+                  output: part.output,
+                }));
+              return [...results, ...contentResults];
+            });
+            
+            console.log('📋 Google tool results from steps:', stepToolResults.length);
+            if (stepToolResults.length > 0) {
+              console.log('✅ Google all tool results from steps:', JSON.stringify(stepToolResults, null, 2));
+              // Merge step results with onFinish results (prefer step results as they're more complete)
+              allToolResults = stepToolResults.length > 0 ? stepToolResults : allToolResults;
+            }
+          }
+
+          const appointmentResult = allToolResults.find(
+            (result: any) => result.toolName === 'bookAppointment'
+          ) as any;
+          
+          // Tool results use 'output' property, but some versions might use 'result'
+          const toolOutput = appointmentResult?.output || appointmentResult?.result;
+          const appointmentId = toolOutput?.appointmentId || null;
+          
+          if (appointmentResult) {
+            console.log('✅ Google appointment booking result found:', toolOutput);
+          } else {
+            console.log('❌ Google: No appointment result found in toolResults or steps');
+          }
+
+          await supabase
+            .from('booking_chat')
+            .insert({
+              patient_id: user.id,
+              message: userMessage,
+              ai_response: text,
+              appointment_id: appointmentId,
+            });
+        } catch (dbError) {
+          console.error('Error saving booking chat:', dbError);
+        }
+      },
+    });
+
+    // Get the response
+    const googleResponse = googleResult.toUIMessageStreamResponse({
+      onError: (error) => {
+        console.error('Google response error in toUIMessageStreamResponse:', error);
+        googleFailed = true;
+        return 'An error occurred. Switching to backup provider...';
+      },
+    });
+
+    // If Google already failed (detected in onError), immediately use Groq
+    if (googleFailed || !googleResponse.body) {
+      console.log('Google failed early, immediately switching to Groq');
+      const groqResult = createStreamWithCallback(groq('openai/gpt-oss-120b'));
+      return groqResult.toUIMessageStreamResponse();
+    }
+
+    const reader = googleResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let hasStarted = false;
+
+    const wrappedStream = new ReadableStream({
+      async start(controller) {
+        let shouldFallback = false;
+        
+        try {
+          // Try to read from Google stream
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              if (!hasStarted) {
+                // Stream ended before any data - likely an error
+                shouldFallback = true;
+                break;
+              }
+              controller.close();
+              return;
+            }
+            
+            hasStarted = true;
+            
+            // Decode and check for error patterns
+            try {
+              const chunk = decoder.decode(value, { stream: true });
+              buffer += chunk;
+              
+              // Check for common error indicators
+              if (buffer.includes('"error"') || 
+                  buffer.includes('quota') || 
+                  buffer.includes('exceeded') || 
+                  buffer.includes('429') ||
+                  buffer.includes('RESOURCE_EXHAUSTED') ||
+                  buffer.includes('AI_APICallError')) {
+                console.error('Error detected in Google stream, falling back to Groq');
+                shouldFallback = true;
+                reader.cancel().catch(() => {});
+                break;
+              }
+            } catch (decodeError) {
+              // If decoding fails, continue - might be binary data
+            }
+            
+            controller.enqueue(value);
+          }
+        } catch (error) {
+          console.error('Error reading Google stream, falling back to Groq:', error);
+          shouldFallback = true;
+          reader.cancel().catch(() => {});
+        }
+        
+        // Fallback to Groq if needed
+        if (shouldFallback || googleFailed) {
+          try {
+            console.log('Switching to Groq fallback provider...');
+            const groqResult = createStreamWithCallback(groq('moonshotai/kimi-k2-instruct-0905'));
+            const groqResponse = groqResult.toUIMessageStreamResponse();
+            
+            if (groqResponse.body) {
+              const groqReader = groqResponse.body.getReader();
+              while (true) {
+                const { done, value } = await groqReader.read();
+                if (done) {
+                  controller.close();
+                  break;
+                }
+                controller.enqueue(value);
+              }
+            } else {
+              controller.close();
+            }
+          } catch (groqError) {
+            console.error('Groq fallback also failed:', groqError);
+            controller.error(groqError);
+          }
+        }
+      },
+      cancel() {
+        reader.cancel().catch(() => {});
+      },
+    });
+
+    return new Response(wrappedStream, {
+      headers: googleResponse.headers,
+      status: googleResponse.status,
+      statusText: googleResponse.statusText,
+    });
+  } catch (error) {
+    console.error('Error in booking chat API:', error);
+    return new Response('Internal server error', { status: 500 });
+  }
+}
+
