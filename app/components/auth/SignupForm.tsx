@@ -5,6 +5,16 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+/**
+ * Render a signup form that creates a Supabase user and redirects according to the selected role.
+ *
+ * On form submission, attempts to create a Supabase auth user with the provided email, password,
+ * and metadata (first_name, last_name, role). Displays server-provided or a generic error message
+ * on failure and shows a loading state while the request is in progress. On successful signup,
+ * navigates to `/doctor` when the selected role is `doctor`, otherwise to `/patient`, then refreshes the router.
+ *
+ * @returns The signup form component's JSX.
+ */
 export default function SignupForm() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')

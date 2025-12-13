@@ -35,6 +35,15 @@ interface RecordingsListProps {
     refreshTrigger?: number;
 }
 
+/**
+ * Render a list of consultation audio recordings with controls to play, download, refresh, and delete entries.
+ *
+ * The component fetches recordings from Supabase, displays date/time and processing status, shows a loading
+ * skeleton while fetching, and updates the UI optimistically when a recording is deleted.
+ *
+ * @param refreshTrigger - Optional numeric value; changing this value forces the component to re-fetch recordings.
+ * @returns The recordings list UI as a React element.
+ */
 export function RecordingsList({ refreshTrigger }: RecordingsListProps) {
     const [recordings, setRecordings] = useState<Recording[]>([]);
     const [isLoading, setIsLoading] = useState(true);

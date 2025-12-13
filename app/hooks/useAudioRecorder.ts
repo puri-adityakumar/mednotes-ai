@@ -24,6 +24,15 @@ export interface UseAudioRecorderReturn {
     requestPermission: () => Promise<boolean>;
 }
 
+/**
+ * Provides a React hook that manages audio recording using the MediaRecorder API.
+ *
+ * Manages microphone permission requests, recording lifecycle (start, pause, resume, stop, reset),
+ * elapsed recording time, recorded audio Blob and object URL, and error state. Cleans up media
+ * tracks, timers, and object URLs on unmount or when recordings are replaced.
+ *
+ * @returns An object exposing recording state and data (`recordingState`, `recordingTime`, `audioBlob`, `audioUrl`, `error`), actions (`startRecording`, `stopRecording`, `pauseRecording`, `resumeRecording`, `resetRecording`), and permission helpers (`hasPermission`, `requestPermission`).
+ */
 export function useAudioRecorder(): UseAudioRecorderReturn {
     const [recordingState, setRecordingState] = useState<RecordingState>('idle');
     const [recordingTime, setRecordingTime] = useState(0);
@@ -227,7 +236,12 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     };
 }
 
-// Helper function to format recording time
+/**
+ * Format a duration given in seconds as an "MM:SS" timestamp.
+ *
+ * @param seconds - Duration in seconds to format
+ * @returns The time formatted as `MM:SS` with minutes and seconds zero-padded to two digits
+ */
 export function formatRecordingTime(seconds: number): string {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;

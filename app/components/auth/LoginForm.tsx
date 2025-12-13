@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+/**
+ * Render a sign-in form that authenticates the user with Supabase, fetches the user's profile to determine their role, and redirects to the appropriate dashboard.
+ *
+ * The form displays validation and server errors, disables the submit button while signing in, retries profile fetching up to three times with short delays if needed, and navigates to `/doctor` when the profile role is `'doctor'` or `/patient` otherwise.
+ *
+ * @returns The React element for the login form and its associated client-side behavior.
+ */
 export default function LoginForm() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')

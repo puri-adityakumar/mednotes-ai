@@ -50,7 +50,9 @@ export interface FetchAppointmentsResult {
 }
 
 /**
- * Fetch appointments available for recording (in_progress or scheduled)
+ * Retrieve appointments for the authenticated doctor that are available for recording.
+ *
+ * @returns A FetchAppointmentsResult containing the matching appointments (status `in_progress` or `scheduled`) in `appointments`; on failure `success` is `false` and `error` contains a descriptive message.
  */
 export async function fetchRecordableAppointments(): Promise<FetchAppointmentsResult> {
     try {
@@ -104,7 +106,9 @@ export async function fetchRecordableAppointments(): Promise<FetchAppointmentsRe
 }
 
 /**
- * Fetch all recordings for the current doctor
+ * Fetches recordings (consultations that have an audio URL) for the authenticated doctor, including appointment and patient details.
+ *
+ * @returns An object with `success` indicating operation outcome, `recordings` containing an array of `Recording`, and `error` with a message when the operation fails.
  */
 export async function fetchDoctorRecordings(): Promise<FetchRecordingsResult> {
     try {
@@ -161,7 +165,12 @@ export async function fetchDoctorRecordings(): Promise<FetchRecordingsResult> {
 }
 
 /**
- * Create a consultation record after upload (called from client after storage upload)
+ * Create or update a consultation record for the given appointment after an audio file is uploaded.
+ *
+ * @param appointmentId - The ID of the appointment to associate the consultation with
+ * @param audioUrl - Public URL of the uploaded audio file
+ * @param durationMinutes - Recording duration in minutes
+ * @returns An UploadRecordingResult: `success` indicates operation outcome; on success includes `consultationId` and `audioUrl`, on failure includes a human-readable `message`
  */
 export async function createConsultationRecord(
     appointmentId: string,
@@ -263,7 +272,10 @@ export async function createConsultationRecord(
 }
 
 /**
- * Delete a recording
+ * Remove a recording file and clear its audio reference on the specified consultation after verifying the current doctor owns the appointment.
+ *
+ * @param consultationId - The consultation ID whose recording should be deleted
+ * @returns An object with `success` indicating whether the deletion and record update succeeded, and `message` describing the outcome
  */
 export async function deleteRecording(consultationId: string): Promise<{ success: boolean; message: string }> {
     try {
@@ -331,8 +343,10 @@ export async function deleteRecording(consultationId: string): Promise<{ success
 }
 
 /**
- * Generate a signed URL for secure download (for private buckets)
- * Since the bucket is public, this returns the public URL
+ * Provide a downloadable URL for a recording; returns the provided URL when the storage bucket is public.
+ *
+ * @param audioUrl - The recording's public or storage URL
+ * @returns `true` with `url` set to a downloadable URL when available, `false` with `error` describing the failure
  */
 export async function getRecordingDownloadUrl(audioUrl: string): Promise<{ success: boolean; url?: string; error?: string }> {
     try {

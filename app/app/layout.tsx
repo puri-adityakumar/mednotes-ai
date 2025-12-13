@@ -19,6 +19,12 @@ export const metadata: Metadata = {
   description: "AI-powered medical notes and consultation management system",
 };
 
+/**
+ * Provides the application's root HTML layout, applying global fonts, theme configuration, and top-level UI (including the Toaster).
+ *
+ * @param children - Page content to render inside the ThemeProvider
+ * @returns The root HTML structure containing the configured body classes, ThemeProvider, rendered children, and a Toaster positioned at the top-right
+ */
 export default function RootLayout({
   children,
 }: Readonly<{

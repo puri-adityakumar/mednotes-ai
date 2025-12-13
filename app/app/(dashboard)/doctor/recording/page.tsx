@@ -1,6 +1,11 @@
 import { AuthNavbar } from "@/components/AuthNavbar";
 import { RecordingContent } from "./RecordingContent";
 
+/**
+ * Page component that displays the authenticated navbar and the doctor recording content within the dashboard layout.
+ *
+ * @returns The page's JSX element containing the layout with an authenticated navigation bar and the recording content area.
+ */
 export default function RecordingPage() {
     return (
         <div className="flex flex-col min-h-screen bg-gradient-to-br from-gray-50 via-white to-slate-50 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">

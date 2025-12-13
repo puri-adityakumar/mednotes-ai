@@ -5,6 +5,14 @@ import { NewRecordingPanel } from "@/components/doctors/NewRecordingPanel";
 import { RecordingsList } from "@/components/doctors/RecordingsList";
 import { Mic, FileAudio } from 'lucide-react';
 
+/**
+ * Render the consultation recording interface for creating and managing patient recordings.
+ *
+ * Displays a page header, quick stat cards, a panel for creating new recordings, and a recordings list.
+ * When a recording is uploaded, the list is refreshed automatically.
+ *
+ * @returns The component's JSX element containing the UI for recording creation and management.
+ */
 export function RecordingContent() {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
 

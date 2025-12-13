@@ -42,6 +42,20 @@ export type DashboardSidebarProps = {
   activeColor: string
 }
 
+/**
+ * Render a themed dashboard sidebar with navigable menu items and a logout control.
+ *
+ * Renders a header link with the provided title, a menu built from `menuItems` where the item
+ * matching the current pathname is highlighted using the provided color theme, and a footer
+ * containing a logout action.
+ *
+ * @param title - The sidebar title shown in the header
+ * @param titleHref - The destination URL for the header title link
+ * @param titleColor - Theme color for the title and active menu item styling (`"blue"` or `"teal"`)
+ * @param menuItems - Array of menu entries (title, href, icon) to render as navigation links
+ * @param activeColor - (Unused directly) theme color intended for active item styling; kept for API compatibility
+ * @returns A React element representing the dashboard sidebar UI
+ */
 export function DashboardSidebar({
   title,
   titleHref,
@@ -155,4 +169,3 @@ export const doctorMenuItems: MenuItem[] = [
     icon: Users,
   },
 ]
-

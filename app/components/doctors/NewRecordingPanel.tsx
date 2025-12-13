@@ -30,6 +30,14 @@ interface NewRecordingPanelProps {
     onRecordingUploaded?: () => void;
 }
 
+/**
+ * Render a panel for selecting a patient appointment, recording consultation audio, previewing the clip, and uploading it to create a consultation record.
+ *
+ * The panel fetches ongoing or scheduled appointments for selection, manages recording lifecycle (start, pause, resume, stop, reset), shows a live timer and visualizer, allows previewing the recorded audio, uploads the audio file to storage, and invokes a server action to create the consultation record. After a successful upload it refreshes the appointment list and optionally notifies a parent component.
+ *
+ * @param onRecordingUploaded - Optional callback invoked after a recording is uploaded successfully.
+ * @returns The New Recording panel UI component.
+ */
 export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProps) {
     const [appointments, setAppointments] = useState<AppointmentOption[]>([]);
     const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');

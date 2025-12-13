@@ -5,6 +5,13 @@ import { AppointmentList } from "@/components/doctors/AppointmentList";
 import { Button } from "@/components/ui/button";
 import { Mic } from "lucide-react";
 
+/**
+ * Renders the doctor dashboard page with site navigation, a header containing a greeting and a "New Recording" action, and sections for the doctor's profile and appointments.
+ *
+ * The layout includes the authenticated navigation bar at the top, a responsive header with the page title and a link button to "/doctor/recording", followed by the DoctorProfile and AppointmentList components.
+ *
+ * @returns A JSX element representing the doctor dashboard page.
+ */
 export default function DoctorDashboard() {
     return (
         <div className="flex flex-col min-h-screen bg-background">

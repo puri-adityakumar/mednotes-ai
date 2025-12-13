@@ -3,6 +3,11 @@ import { ThemeToggle } from './ThemeToggle';
 import { createClient } from '@/lib/supabase/server';
 import { LogoutButton } from './LogoutButton';
 
+/**
+ * Render the application's responsive top navigation bar and personalize visible actions based on the current authenticated user.
+ *
+ * @returns The navbar JSX element containing the brand link, section anchors, theme toggle, and user-specific controls — shows the computed display name and a logout button when a user is signed in, or sign-in and booking links when no user is present.
+ */
 export async function Navbar() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -82,4 +87,3 @@ export async function Navbar() {
         </nav>
     );
 }
-
