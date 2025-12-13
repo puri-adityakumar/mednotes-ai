@@ -1,7 +1,25 @@
 import Link from 'next/link';
 import { ThemeToggle } from './ThemeToggle';
+import { createClient } from '@/lib/supabase/server';
+import { LogoutButton } from './LogoutButton';
 
-export function Navbar() {
+export async function Navbar() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    let displayName = null;
+    if (user) {
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('id', user.id)
+            .single();
+
+        displayName = profile?.first_name
+            ? `${profile.first_name} ${profile.last_name || ''}`.trim()
+            : user.email?.split('@')[0] || 'User';
+    }
+
     return (
         <nav className="border-b border-gray-200 dark:border-gray-800 bg-background/80 backdrop-blur-md sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -18,16 +36,35 @@ export function Navbar() {
                         <Link href="#features" className="text-sm font-medium hover:text-blue-600 transition-colors">
                             Features
                         </Link>
-                        <Link href="/login" className="text-sm font-medium hover:text-blue-600 transition-colors">
-                            Sign In
-                        </Link>
+                        {user ? (
+                            <div className="flex items-center gap-4">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                                    {displayName}
+                                </span>
+                                <LogoutButton />
+                            </div>
+                        ) : (
+                            <Link href="/login" className="text-sm font-medium hover:text-blue-600 transition-colors">
+                                Sign In
+                            </Link>
+                        )}
                         <ThemeToggle />
-                        <Link
-                            href="/patient"
-                            className="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
-                        >
-                            Book Appointment
-                        </Link>
+                        {!user && (
+                            <Link
+                                href="/patient"
+                                className="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                            >
+                                Book Appointment
+                            </Link>
+                        )}
+                        {user && (
+                            <Link
+                                href="/patient"
+                                className="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                            >
+                                Dashboard
+                            </Link>
+                        )}
                     </div>
                     {/* Mobile menu button (placeholder) */}
                     <div className="md:hidden flex items-center gap-2">
@@ -45,3 +82,4 @@ export function Navbar() {
         </nav>
     );
 }
+
