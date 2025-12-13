@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,31 +10,31 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Mic, Square, Upload, RotateCcw, Play, Pause, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+    Mic,
+    Square,
+    Upload,
+    RotateCcw,
+    Play,
+    Pause,
+    AlertCircle,
+    Volume2,
+    Radio
+} from 'lucide-react';
 import { useAudioRecorder, formatRecordingTime } from '@/hooks/useAudioRecorder';
 import { createClient } from '@/lib/supabase/client';
-
-interface Appointment {
-    id: string;
-    appointment_date: string;
-    status: string;
-    profiles: {
-        first_name: string | null;
-        last_name: string | null;
-    } | null;
-}
+import { createConsultationRecord, type AppointmentOption } from '@/app/actions/recordings';
+import { toast } from 'sonner';
 
 interface NewRecordingPanelProps {
     onRecordingUploaded?: () => void;
 }
 
 export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProps) {
-    const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [appointments, setAppointments] = useState<AppointmentOption[]>([]);
     const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
-    const [uploadSuccess, setUploadSuccess] = useState(false);
-    const [uploadError, setUploadError] = useState<string | null>(null);
 
     const {
         recordingState,
@@ -49,45 +49,83 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
         resetRecording,
     } = useAudioRecorder();
 
-    // Fetch ongoing/upcoming appointments
+    // Fetch appointments
+    const fetchAppointments = useCallback(async () => {
+        setIsLoading(true);
+        const supabase = createClient();
+
+        const { data, error } = await supabase
+            .from('appointments')
+            .select(`
+                id,
+                appointment_date,
+                status,
+                profiles:patient_id (
+                    first_name,
+                    last_name
+                )
+            `)
+            .in('status', ['in_progress', 'scheduled'])
+            .order('appointment_date', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching appointments:', error);
+            toast.error('Failed to load appointments');
+        } else {
+            const transformed: AppointmentOption[] = (data || []).map((apt: any) => {
+                const patient = Array.isArray(apt.profiles) ? apt.profiles[0] : apt.profiles;
+                return {
+                    id: apt.id,
+                    appointment_date: apt.appointment_date,
+                    status: apt.status,
+                    patient_name: patient
+                        ? `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown Patient'
+                        : 'Unknown Patient',
+                };
+            });
+            setAppointments(transformed);
+        }
+        setIsLoading(false);
+    }, []);
+
     useEffect(() => {
-        async function fetchAppointments() {
-            const supabase = createClient();
+        fetchAppointments();
+    }, [fetchAppointments]);
 
-            const { data, error } = await supabase
-                .from('appointments')
-                .select(`
-                    id,
-                    appointment_date,
-                    status,
-                    profiles:patient_id (
-                        first_name,
-                        last_name
-                    )
-                `)
-                .in('status', ['in_progress', 'scheduled'])
-                .order('appointment_date', { ascending: true });
+    // Show error toast when recording error occurs
+    useEffect(() => {
+        if (recordingError) {
+            toast.error(recordingError);
+        }
+    }, [recordingError]);
 
-            if (error) {
-                console.error('Error fetching appointments:', error);
-            } else {
-                setAppointments(data || []);
-            }
-            setIsLoading(false);
+    const handleStartRecording = async () => {
+        if (!selectedAppointmentId) {
+            toast.warning('Please select an appointment first');
+            return;
         }
 
-        fetchAppointments();
-    }, []);
+        toast.promise(startRecording(), {
+            loading: 'Requesting microphone access...',
+            success: 'Recording started!',
+            error: 'Failed to start recording',
+        });
+    };
+
+    const handleStopRecording = () => {
+        stopRecording();
+        toast.info('Recording stopped. You can preview and upload.');
+    };
 
     const handleUpload = async () => {
         if (!audioBlob || !selectedAppointmentId) {
-            setUploadError('Please select an appointment and record audio first.');
+            toast.error('Please select an appointment and record audio first.');
             return;
         }
 
         setIsUploading(true);
-        setUploadError(null);
-        setUploadSuccess(false);
+
+        const uploadToast = toast.loading('Uploading recording...');
 
         try {
             const supabase = createClient();
@@ -115,104 +153,99 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
 
             const audioPublicUrl = urlData.publicUrl;
 
-            // Check if consultation exists for this appointment
-            const { data: existingConsultation } = await supabase
-                .from('consultations')
-                .select('id')
-                .eq('appointment_id', selectedAppointmentId)
-                .single();
+            // Create consultation record via server action
+            const result = await createConsultationRecord(
+                selectedAppointmentId,
+                audioPublicUrl,
+                Math.ceil(recordingTime / 60)
+            );
 
-            if (existingConsultation) {
-                // Update existing consultation
-                const { error: updateError } = await supabase
-                    .from('consultations')
-                    .update({
-                        audio_url: audioPublicUrl,
-                        duration_minutes: Math.ceil(recordingTime / 60),
-                        processing_status: 'pending',
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('id', existingConsultation.id);
-
-                if (updateError) throw updateError;
-            } else {
-                // Create new consultation
-                const { error: insertError } = await supabase
-                    .from('consultations')
-                    .insert({
-                        appointment_id: selectedAppointmentId,
-                        audio_url: audioPublicUrl,
-                        duration_minutes: Math.ceil(recordingTime / 60),
-                        processing_status: 'pending',
-                        consultation_date: new Date().toISOString(),
-                    });
-
-                if (insertError) throw insertError;
+            if (!result.success) {
+                throw new Error(result.message);
             }
 
-            // Update appointment status to in_progress if scheduled
-            await supabase
-                .from('appointments')
-                .update({ status: 'in_progress' })
-                .eq('id', selectedAppointmentId)
-                .eq('status', 'scheduled');
+            toast.success('Recording uploaded successfully!', {
+                id: uploadToast,
+                description: 'AI processing will begin shortly.',
+            });
 
-            setUploadSuccess(true);
             resetRecording();
             setSelectedAppointmentId('');
+
+            // Refresh appointments list (in case status changed)
+            fetchAppointments();
 
             // Notify parent component
             onRecordingUploaded?.();
 
         } catch (err: any) {
             console.error('Upload error:', err);
-            setUploadError(err.message || 'Failed to upload recording. Please try again.');
+            toast.error(err.message || 'Failed to upload recording', {
+                id: uploadToast,
+            });
         } finally {
             setIsUploading(false);
         }
     };
 
-    const formatAppointmentOption = (apt: Appointment) => {
-        const patient = apt.profiles;
-        const patientName = patient
-            ? `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown Patient'
-            : 'Unknown Patient';
+    const formatAppointmentOption = (apt: AppointmentOption) => {
         const date = new Date(apt.appointment_date);
         const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
         const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const statusBadge = apt.status === 'in_progress' ? '🔴' : '🟡';
 
-        return `${statusBadge} ${patientName} - ${dateStr} ${timeStr}`;
+        return `${statusBadge} ${apt.patient_name} - ${dateStr} ${timeStr}`;
     };
 
-    const getRecordingStateColor = () => {
+    const getRecordingStateStyles = () => {
         switch (recordingState) {
             case 'recording':
-                return 'text-red-500';
+                return {
+                    timerColor: 'text-red-500',
+                    bgColor: 'bg-red-50 dark:bg-red-900/10',
+                    borderColor: 'border-red-200 dark:border-red-900/30',
+                };
             case 'paused':
-                return 'text-amber-500';
+                return {
+                    timerColor: 'text-amber-500',
+                    bgColor: 'bg-amber-50 dark:bg-amber-900/10',
+                    borderColor: 'border-amber-200 dark:border-amber-900/30',
+                };
             case 'stopped':
-                return 'text-green-500';
+                return {
+                    timerColor: 'text-green-500',
+                    bgColor: 'bg-green-50 dark:bg-green-900/10',
+                    borderColor: 'border-green-200 dark:border-green-900/30',
+                };
             default:
-                return 'text-gray-400';
+                return {
+                    timerColor: 'text-gray-400 dark:text-gray-500',
+                    bgColor: 'bg-gray-50 dark:bg-zinc-800/50',
+                    borderColor: 'border-gray-200 dark:border-zinc-700',
+                };
         }
     };
 
+    const styles = getRecordingStateStyles();
+
     return (
-        <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm">
-            <CardHeader className="pb-4 border-b border-gray-100 dark:border-zinc-800">
+        <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+            <CardHeader className="pb-4 border-b border-gray-100 dark:border-zinc-800 bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/10 dark:to-cyan-900/10">
                 <CardTitle className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                    <Mic className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                    <div className="p-2 rounded-lg bg-teal-100 dark:bg-teal-900/30">
+                        <Mic className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                    </div>
                     New Recording
                 </CardTitle>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Select a patient and record the consultation audio.
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Select a patient appointment and record the consultation audio.
                 </p>
             </CardHeader>
             <CardContent className="pt-6 space-y-6">
                 {/* Patient Selection */}
                 <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                        <Radio className="w-4 h-4 text-teal-600" />
                         Select Patient Appointment
                     </label>
                     <Select
@@ -220,8 +253,8 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                         onValueChange={setSelectedAppointmentId}
                         disabled={recordingState === 'recording' || recordingState === 'paused'}
                     >
-                        <SelectTrigger className="w-full">
-                            <SelectValue placeholder={isLoading ? "Loading appointments..." : "Select an appointment"} />
+                        <SelectTrigger className="w-full h-12 text-base">
+                            <SelectValue placeholder={isLoading ? "Loading appointments..." : "Choose an appointment to record"} />
                         </SelectTrigger>
                         <SelectContent>
                             {appointments.length === 0 ? (
@@ -230,58 +263,95 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                                 </div>
                             ) : (
                                 appointments.map((apt) => (
-                                    <SelectItem key={apt.id} value={apt.id}>
+                                    <SelectItem key={apt.id} value={apt.id} className="py-3">
                                         {formatAppointmentOption(apt)}
                                     </SelectItem>
                                 ))
                             )}
                         </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-400">
-                        🔴 In Progress &nbsp;&nbsp; 🟡 Scheduled
-                    </p>
+                    <div className="flex items-center gap-4 text-xs text-gray-400">
+                        <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                            In Progress
+                        </span>
+                        <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                            Scheduled
+                        </span>
+                    </div>
                 </div>
 
                 {/* Recording Controls */}
-                <div className="flex flex-col items-center space-y-4 py-6 bg-gray-50 dark:bg-zinc-800/50 rounded-lg">
+                <div className={`flex flex-col items-center space-y-6 py-8 rounded-xl border-2 ${styles.bgColor} ${styles.borderColor} transition-all duration-300`}>
+                    {/* Audio Visualizer Placeholder */}
+                    {recordingState === 'recording' && (
+                        <div className="flex items-center gap-1 h-12">
+                            {[...Array(12)].map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="w-1 bg-red-500 rounded-full animate-pulse"
+                                    style={{
+                                        height: `${Math.random() * 32 + 16}px`,
+                                        animationDelay: `${i * 0.1}s`,
+                                        animationDuration: `${0.5 + Math.random() * 0.5}s`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {recordingState !== 'recording' && (
+                        <div className="flex items-center gap-1 h-12">
+                            <Volume2 className={`w-8 h-8 ${recordingState === 'idle' ? 'text-gray-300 dark:text-gray-600' : 'text-green-500'}`} />
+                        </div>
+                    )}
+
                     {/* Timer Display */}
-                    <div className={`text-5xl font-mono font-bold ${getRecordingStateColor()}`}>
+                    <div className={`text-6xl font-mono font-bold ${styles.timerColor} transition-colors duration-300`}>
                         {formatRecordingTime(recordingTime)}
                     </div>
 
                     {/* Recording State Indicator */}
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-2 text-sm font-medium">
                         {recordingState === 'recording' && (
                             <>
-                                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                Recording...
+                                <span className="relative flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                </span>
+                                <span className="text-red-600 dark:text-red-400">Recording in progress...</span>
                             </>
                         )}
                         {recordingState === 'paused' && (
                             <>
-                                <span className="w-2 h-2 bg-amber-500 rounded-full" />
-                                Paused
+                                <span className="w-3 h-3 bg-amber-500 rounded-full" />
+                                <span className="text-amber-600 dark:text-amber-400">Recording paused</span>
                             </>
                         )}
                         {recordingState === 'stopped' && audioBlob && (
                             <>
-                                <span className="w-2 h-2 bg-green-500 rounded-full" />
-                                Recording complete
+                                <span className="w-3 h-3 bg-green-500 rounded-full" />
+                                <span className="text-green-600 dark:text-green-400">Recording complete - Ready to upload</span>
                             </>
                         )}
-                        {recordingState === 'idle' && 'Ready to record'}
+                        {recordingState === 'idle' && (
+                            <span className="text-gray-500 dark:text-gray-400">
+                                {selectedAppointmentId ? 'Ready to record' : 'Select an appointment to begin'}
+                            </span>
+                        )}
                     </div>
 
                     {/* Control Buttons */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-4 pt-2">
                         {recordingState === 'idle' && (
                             <Button
                                 size="lg"
-                                onClick={startRecording}
+                                onClick={handleStartRecording}
                                 disabled={!selectedAppointmentId}
-                                className="bg-red-600 hover:bg-red-700 text-white gap-2 px-6"
+                                className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white gap-2 px-8 h-14 text-lg shadow-lg shadow-red-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-red-500/30 hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
                             >
-                                <Mic className="w-5 h-5" />
+                                <Mic className="w-6 h-6" />
                                 Start Recording
                             </Button>
                         )}
@@ -292,18 +362,18 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                                     size="lg"
                                     variant="outline"
                                     onClick={pauseRecording}
-                                    className="gap-2"
+                                    className="gap-2 h-12 px-6 border-2 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                                 >
                                     <Pause className="w-5 h-5" />
                                     Pause
                                 </Button>
                                 <Button
                                     size="lg"
-                                    onClick={stopRecording}
-                                    className="bg-gray-800 hover:bg-gray-900 text-white gap-2"
+                                    onClick={handleStopRecording}
+                                    className="bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white gap-2 h-12 px-6"
                                 >
                                     <Square className="w-5 h-5" />
-                                    Stop
+                                    Stop Recording
                                 </Button>
                             </>
                         )}
@@ -313,18 +383,18 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                                 <Button
                                     size="lg"
                                     onClick={resumeRecording}
-                                    className="bg-teal-600 hover:bg-teal-700 text-white gap-2"
+                                    className="bg-teal-600 hover:bg-teal-700 text-white gap-2 h-12 px-6"
                                 >
                                     <Play className="w-5 h-5" />
                                     Resume
                                 </Button>
                                 <Button
                                     size="lg"
-                                    onClick={stopRecording}
-                                    className="bg-gray-800 hover:bg-gray-900 text-white gap-2"
+                                    onClick={handleStopRecording}
+                                    className="bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white gap-2 h-12 px-6"
                                 >
                                     <Square className="w-5 h-5" />
-                                    Stop
+                                    Stop Recording
                                 </Button>
                             </>
                         )}
@@ -334,10 +404,10 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                                 size="lg"
                                 variant="outline"
                                 onClick={resetRecording}
-                                className="gap-2"
+                                className="gap-2 h-12 px-6 border-2"
                             >
                                 <RotateCcw className="w-5 h-5" />
-                                New Recording
+                                Start Over
                             </Button>
                         )}
                     </div>
@@ -345,8 +415,9 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
 
                 {/* Audio Preview */}
                 {audioUrl && recordingState === 'stopped' && (
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <div className="space-y-3 p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border border-gray-200 dark:border-zinc-700">
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <Play className="w-4 h-4 text-teal-600" />
                             Preview Recording
                         </label>
                         <audio
@@ -354,22 +425,20 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                             src={audioUrl}
                             className="w-full rounded-lg"
                         />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Duration: {formatRecordingTime(recordingTime)} • Format: WebM Audio
+                        </p>
                     </div>
                 )}
 
                 {/* Error Display */}
-                {(recordingError || uploadError) && (
-                    <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg text-sm">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        {recordingError || uploadError}
-                    </div>
-                )}
-
-                {/* Success Message */}
-                {uploadSuccess && (
-                    <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg text-sm">
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        Recording uploaded successfully! Processing will begin shortly.
+                {recordingError && (
+                    <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg border border-red-200 dark:border-red-900/30">
+                        <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="font-medium">Recording Error</p>
+                            <p className="text-sm opacity-90">{recordingError}</p>
+                        </div>
                     </div>
                 )}
 
@@ -379,12 +448,12 @@ export function NewRecordingPanel({ onRecordingUploaded }: NewRecordingPanelProp
                         size="lg"
                         onClick={handleUpload}
                         disabled={isUploading || !selectedAppointmentId}
-                        className="w-full bg-teal-600 hover:bg-teal-700 text-white gap-2"
+                        className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white gap-2 h-14 text-lg shadow-lg shadow-teal-500/25 transition-all duration-300 hover:shadow-xl hover:shadow-teal-500/30 disabled:opacity-50"
                     >
                         {isUploading ? (
                             <>
-                                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                Uploading...
+                                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Uploading Recording...
                             </>
                         ) : (
                             <>
