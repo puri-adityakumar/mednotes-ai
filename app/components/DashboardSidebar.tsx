@@ -9,6 +9,7 @@ import {
   User,
   CalendarDays,
   Users,
+  Mic,
   type LucideIcon,
 } from "lucide-react"
 
@@ -79,11 +80,11 @@ export function DashboardSidebar({
                       isActive={isActive}
                       className={cn(
                         isActive &&
-                          titleColor === "blue" &&
-                          "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300",
+                        titleColor === "blue" &&
+                        "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300",
                         isActive &&
-                          titleColor === "teal" &&
-                          "bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300"
+                        titleColor === "teal" &&
+                        "bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300"
                       )}
                     >
                       <Link href={item.href}>
@@ -137,6 +138,11 @@ export const doctorMenuItems: MenuItem[] = [
     title: "Dashboard",
     href: "/doctor",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Recording",
+    href: "/doctor/recording",
+    icon: Mic,
   },
   {
     title: "Schedule",
