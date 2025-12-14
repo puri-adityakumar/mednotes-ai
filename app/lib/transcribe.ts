@@ -60,7 +60,7 @@ export async function transcribeConsultation(consultationId: string) {
         // 5. Transcribe with AssemblyAI
         const params = {
             audio: consultation.audio_url,
-            speech_models: ["universal"] as const,
+            speech_models: ["universal"] as string[],
         };
 
         const transcript = await client.transcripts.transcribe(params);
