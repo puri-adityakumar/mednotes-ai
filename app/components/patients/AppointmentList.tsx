@@ -15,7 +15,7 @@ export async function AppointmentList() {
             appointment_date,
             status,
             notes,
-            profiles:doctor_id (
+            profiles!doctor_id (
                 first_name,
                 last_name,
                 specialization

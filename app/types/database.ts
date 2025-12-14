@@ -104,6 +104,7 @@ export interface ChatMessageWithUser extends ChatMessage {
 // Booking Chat Messages
 export interface BookingChat {
   id: string; // UUID
+  chat_id: string; // UUID - Groups messages from the same chat session
   appointment_id: string | null; // References appointments.id (nullable initially)
   patient_id: string; // References profiles.id
   message: string; // Patient message

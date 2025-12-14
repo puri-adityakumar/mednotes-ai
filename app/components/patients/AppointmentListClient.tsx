@@ -25,7 +25,8 @@ export function AppointmentListClient({ appointments }: { appointments: any[] })
         const date = new Date(dateString);
         return {
             time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            dateDisplay: date.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
+            dateDisplay: date.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+            
         };
     };
 
