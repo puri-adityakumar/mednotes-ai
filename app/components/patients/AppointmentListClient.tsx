@@ -13,6 +13,14 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 
+/**
+ * Renders a card containing a filterable list of appointments with status badges and a "View" action.
+ *
+ * Renders appointment rows showing doctor name, time and date, specialization, status, and a link to view the appointment.
+ *
+ * @param appointments - Array of appointment objects. Each object is expected to include at least: `id`, `status`, `appointment_date`, and `profiles` (an object with `first_name`, `last_name`, and optional `specialization`).
+ * @returns A React element that displays the appointment list UI with filtering controls.
+ */
 export function AppointmentListClient({ appointments }: { appointments: any[] }) {
     const [filter, setFilter] = useState('all');
 
@@ -130,4 +138,3 @@ export function AppointmentListClient({ appointments }: { appointments: any[] })
         </Card>
     );
 }
-

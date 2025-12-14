@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Send, Loader2, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useRef, useState, useMemo } from 'react';
 
+/**
+ * Renders the booking appointment chat page and manages chat session state, messages, and transport.
+ *
+ * Initializes a per-session `chatId`, creates a transport that includes the `chatId` in requests, seeds an initial assistant greeting when the conversation is empty, auto-scrolls the message list on updates, and provides a controlled input form to send messages via the chat SDK.
+ *
+ * @returns The React element for the booking appointment chat page.
+ */
 export default function BookAppointmentPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
@@ -213,4 +220,3 @@ export default function BookAppointmentPage() {
     </div>
   );
 }
-
