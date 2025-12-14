@@ -42,12 +42,12 @@ export async function Navbar() {
 
                     {/* Right: Actions */}
                     <div className="hidden md:flex items-center gap-4">
-                        <ThemeToggle />
                         {user ? (
                             <div className="flex items-center gap-4">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                                <span className="text-sm font-semibold tracking-wide text-gray-700 dark:text-gray-200 uppercase">
                                     {displayName}
                                 </span>
+                                <ThemeToggle />
                                 <LogoutButton />
                                 <Link
                                     href="/patient"
@@ -58,6 +58,7 @@ export async function Navbar() {
                             </div>
                         ) : (
                             <>
+                                <ThemeToggle />
                                 <Link
                                     href="/login"
                                     className="text-sm font-medium hover:text-blue-600 transition-colors"

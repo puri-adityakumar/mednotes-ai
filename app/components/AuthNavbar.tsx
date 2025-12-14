@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
+import { Logo } from './Logo'
 
 interface Profile {
     role: string
@@ -21,7 +22,7 @@ export function AuthNavbar() {
     const [loading, setLoading] = useState(true)
     const pathname = usePathname()
     const router = useRouter()
-    
+
     const isBookAppointmentPage = pathname === '/patient/book-appointment'
 
     useEffect(() => {
@@ -117,16 +118,18 @@ export function AuthNavbar() {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1"></div>
+                        <div className="flex-1 flex items-center">
+                            <Logo size="md" href="/" />
+                        </div>
                     )}
 
                     {/* Right side - Theme toggle, user name, logout */}
                     <div className="flex items-center gap-4 md:gap-6">
                         <div className="hidden md:flex items-center gap-4">
-                            <ThemeToggle />
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="text-sm font-semibold tracking-wide text-gray-700 dark:text-gray-200 uppercase">
                                 {displayName}
                             </span>
+                            <ThemeToggle />
                             <LogoutButton />
                         </div>
                         <div className="md:hidden flex items-center gap-2">

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useState } from 'react'
+import { LogOut } from 'lucide-react'
 
 export function LogoutButton() {
     const router = useRouter()
@@ -26,9 +27,10 @@ export function LogoutButton() {
         <button
             onClick={handleLogout}
             disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-            {loading ? 'Signing out...' : 'Sign Out'}
+            <LogOut className="h-4 w-4" />
+            <span>{loading ? 'Signing out...' : 'Sign Out'}</span>
         </button>
     )
 }
