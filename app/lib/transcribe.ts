@@ -113,3 +113,4 @@ export async function transcribeConsultation(consultationId: string) {
         return { success: false, message: error.message || 'An unexpected error occurred during transcription' };
     }
 }
+
