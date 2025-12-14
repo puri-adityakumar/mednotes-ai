@@ -1,4 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { normalizeMarkdown } from "@/lib/markdown";
 import { FileText, Loader2 } from "lucide-react";
 
 interface ConsultationSummaryTabProps {
@@ -9,6 +11,7 @@ export function ConsultationSummaryTab({ consultation }: ConsultationSummaryTabP
     const hasConsultation = consultation && Array.isArray(consultation) ? consultation[0] : consultation;
     const summary = hasConsultation?.ai_summary;
     const processingStatus = hasConsultation?.processing_status;
+    const summaryMarkdown = normalizeMarkdown(summary);
 
     return (
         <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm">
@@ -43,9 +46,9 @@ export function ConsultationSummaryTab({ consultation }: ConsultationSummaryTabP
                 ) : (
                     <div className="prose dark:prose-invert max-w-none">
                         <div className="bg-gray-50 dark:bg-zinc-900 p-6 rounded-lg border border-gray-200 dark:border-zinc-800">
-                            <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                {summary}
-                            </p>
+                            <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                                {summaryMarkdown}
+                            </MessageResponse>
                         </div>
                     </div>
                 )}

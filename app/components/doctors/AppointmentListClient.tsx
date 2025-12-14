@@ -86,7 +86,7 @@ export function AppointmentListClient({ appointments }: { appointments: any[] })
                         </div>
                     ) : (
                         filteredAppointments.map((appointment) => {
-                            const patient = Array.isArray(appointment.patient) ? appointment.patient[0] : appointment.patient;
+                            const patient = appointment.profiles;
                             const patientName = patient ? `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Unknown Patient' : 'Unknown Patient';
                             const { time, dateDisplay } = formatDate(appointment.appointment_date);
                             const age = calculateAge(patient?.date_of_birth);

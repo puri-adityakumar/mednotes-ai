@@ -1,4 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { normalizeMarkdown } from "@/lib/markdown";
 import { ClipboardList } from "lucide-react";
 
 interface DoctorReportTabProps {
@@ -8,6 +10,7 @@ interface DoctorReportTabProps {
 export function DoctorReportTab({ consultation }: DoctorReportTabProps) {
     const hasConsultation = consultation && Array.isArray(consultation) ? consultation[0] : consultation;
     const doctorNotes = hasConsultation?.doctor_notes;
+    const doctorNotesMarkdown = normalizeMarkdown(doctorNotes);
 
     return (
         <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm">
@@ -40,9 +43,9 @@ export function DoctorReportTab({ consultation }: DoctorReportTabProps) {
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                                 Doctor's Notes
                             </h3>
-                            <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                                {doctorNotes}
-                            </p>
+                            <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                                {doctorNotesMarkdown}
+                            </MessageResponse>
                         </div>
                     </div>
                 )}
