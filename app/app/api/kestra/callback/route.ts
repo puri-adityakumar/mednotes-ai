@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createAnonClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -10,6 +10,9 @@ import { NextRequest, NextResponse } from 'next/server';
  * 1. Updating the consultation with ai_summary and doctor_report
  * 2. Setting processing_status to 'completed' or 'failed'
  * 3. Revalidating pages to reflect the new data
+ * 
+ * NOTE: Uses anonymous client - RLS policies allow updates for consultations
+ * with processing_status = 'processing'.
  */
 export async function POST(request: NextRequest) {
     try {
@@ -33,7 +36,8 @@ export async function POST(request: NextRequest) {
             doctor_report_length: doctor_report?.length || 0
         });
 
-        const supabase = await createClient();
+        // Use anonymous client - RLS policies configured to allow callback updates
+        const supabase = createAnonClient();
 
         if (status === 'completed') {
             // Update consultation with AI results

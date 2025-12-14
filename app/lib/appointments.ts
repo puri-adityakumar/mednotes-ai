@@ -118,27 +118,43 @@ export async function generateAISummary(consultationId: string) {
 
         // Trigger Kestra workflow with ALL the data
         // Kestra no longer needs to access Supabase
-        const kestraUrl = process.env.KESTRA_URL || 'https://kestra.astraa.tech';
+        const kestraUrl = process.env.KESTRA_URL || 'http://localhost:5000';
+        const kestraWebhookKey = process.env.KESTRA_WEBHOOK_KEY || 'jhbjbdjk4654hs';
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
         const callbackUrl = `${appUrl}/api/kestra/callback`;
 
-        // Kestra execution API: POST /api/v1/main/executions/{namespace}/{flowId}
-        const kestraExecutionUrl = `${kestraUrl}/api/v1/main/executions/ai.workflows/ai_summary_workflow`;
+        // Prepare the payload
+        const kestraPayload = {
+            consultation_id: consultationId,
+            transcript: consultation.transcript,
+            doctor_notes: consultation.doctor_notes || '',
+            appointment_notes: appointment.notes || '',
+            callback_url: callbackUrl,
+        };
+
+        // Log what we're sending
+        console.log('=== KESTRA TRIGGER DEBUG ===');
+        console.log('Kestra URL:', kestraUrl);
+        console.log('Callback URL:', callbackUrl);
+        console.log('Consultation ID:', consultationId);
+        console.log('Transcript length:', consultation.transcript?.length || 0);
+        console.log('Doctor notes length:', (consultation.doctor_notes || '').length);
+        console.log('Appointment notes length:', (appointment.notes || '').length);
+        console.log('Full payload keys:', Object.keys(kestraPayload));
+
+        // Kestra webhook trigger API: POST /api/v1/executions/webhook/{namespace}/{flowId}/{webhookKey}
+        const kestraExecutionUrl = `${kestraUrl}/api/v1/executions/webhook/ai.workflows/ai_summary_workflow/${kestraWebhookKey}`;
+        console.log('Kestra execution URL:', kestraExecutionUrl);
 
         const response = await fetch(kestraExecutionUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                // All data Kestra needs for AI processing
-                consultation_id: consultationId,
-                transcript: consultation.transcript,
-                doctor_notes: consultation.doctor_notes || '',
-                appointment_notes: appointment.notes || '',
-                callback_url: callbackUrl,
-            }),
+            body: JSON.stringify(kestraPayload),
         });
+
+        console.log('Kestra response status:', response.status);
 
         if (!response.ok) {
             // Revert processing status on failure
@@ -151,8 +167,9 @@ export async function generateAISummary(consultationId: string) {
                 .eq('id', consultationId);
 
             const errorText = await response.text().catch(() => 'Unknown error');
-            console.error('Kestra workflow trigger failed:', errorText);
-            return { success: false, message: 'Failed to trigger AI summary generation' };
+            console.error(`Kestra workflow trigger failed [${response.status}]:`, errorText);
+            console.error(`Kestra URL attempted: ${kestraExecutionUrl}`);
+            return { success: false, message: `Failed to trigger AI summary generation: ${response.status}` };
         }
 
         // Parse Kestra response to get execution_id
