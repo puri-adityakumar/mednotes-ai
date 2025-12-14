@@ -1,0 +1,7 @@
+# Test-Patients
+Id: hari@user.com
+Pass: testpass
+
+# Test-Doctors
+Id: test@doctor.com
+Pass: testpass

@@ -2,6 +2,8 @@
 
 We propose an AI-powered assistant to transform the healthcare patient journey in India. The process of booking appointments, sharing patient history, and handling follow-ups can be streamlined, reducing friction for both patients and doctors. Our solution is two-part: a pre-consultation voice agent for efficient patient intake, and a post-consultation assistant that logs and summarizes conversations, empowering both sides with instant, reliable information.
 
+> **Demo Credentials**: You can find test user and doctor credentials in [docs/demo-creds.txt](docs/demo-creds.txt).
+
 ## Team : TypoBros
 
 - Aditya Kumar Puri : [Github](https://github.com/puri-adityakumar)
@@ -68,4 +70,4 @@ Please refer to the [Documentation](docs/Documentation.md) for detailed informat
 
 ## Demo
 
-[Link to YouTube Demo]
+[YouTube Demo](https://youtu.be/qlsUijWhC_k)
