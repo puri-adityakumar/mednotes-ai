@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ThemeToggle } from './ThemeToggle';
 import { createClient } from '@/lib/supabase/server';
 import { LogoutButton } from './LogoutButton';
+import { Logo } from './Logo';
 
 export async function Navbar() {
     const supabase = await createClient();
@@ -25,9 +26,7 @@ export async function Navbar() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center h-16">
                     <div className="flex-shrink-0 flex items-center">
-                        <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-teal-500 bg-clip-text text-transparent">
-                            MedNotes AI
-                        </Link>
+                        <Logo size="md" href="/" />
                     </div>
                     <div className="hidden md:flex items-center space-x-8">
                         <Link href="#how-it-works" className="text-sm font-medium hover:text-blue-600 transition-colors">

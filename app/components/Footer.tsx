@@ -1,12 +1,12 @@
+import { Logo } from './Logo';
+
 export function Footer() {
     return (
         <footer className="bg-gray-50 dark:bg-zinc-900 border-t border-gray-200 dark:border-gray-800">
             <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                     <div className="col-span-1 md:col-span-2">
-                        <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-teal-500 bg-clip-text text-transparent">
-                            MedNotes AI
-                        </span>
+                        <Logo size="md" href={undefined} />
                         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400 max-w-sm">
                             Revolutionizing healthcare with AI-powered consultation summaries, secure record keeping, and intelligent patient-doctor interactions.
                         </p>
