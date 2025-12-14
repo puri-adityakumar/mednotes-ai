@@ -1,11 +1,31 @@
 id: ai_summary_workflow
 namespace: ai.workflows
 
+description: |
+  AI-powered medical consultation summary and doctor report generator.
+  This workflow receives consultation data directly from the webapp,
+  processes it with AI, and sends results back via callback webhook.
+
 inputs:
   - id: consultation_id
     type: STRING
     required: true
-    description: The consultation record ID from Supabase
+    description: The consultation record ID (used for tracking/callback)
+
+  - id: transcript
+    type: STRING
+    required: true
+    description: The consultation transcript from audio recording
+
+  - id: doctor_notes
+    type: STRING
+    required: false
+    description: Doctor's notes from the consultation
+
+  - id: appointment_notes
+    type: STRING
+    required: false
+    description: Notes from the appointment record
 
   - id: callback_url
     type: STRING
@@ -13,68 +33,43 @@ inputs:
     description: Webhook URL to send the AI summary and doctor report back
 
 variables:
-  supabase_url: "https://hrwpsmgcgpkplkfxcurj.supabase.co"
-  supabase_key: "REDACT_ME_IN_PROD" # move to Kestra Secrets
-  openrouter_api_key: "REDACT_ME_IN_PROD" # move to Kestra Secrets
+  openrouter_api_key: "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"
   webhook_secret_key: "jhbjbdjk4654hs"
 
 tasks:
-  # Task 1: Fetch consultation data from Supabase
-  - id: fetch_consultation_data
-    type: io.kestra.plugin.core.http.Request
-    uri: "{{ vars.supabase_url }}/rest/v1/consultations"
-    method: GET
-    headers:
-      apikey: "{{ vars.supabase_key }}"
-      Authorization: "Bearer {{ vars.supabase_key }}"
-      Content-Type: "application/json"
-    contentType: application/json
-    options:
-      queryParameters:
-        id: "eq.{{ inputs.consultation_id }}"
-        select: "id,transcript,doctor_notes,appointment_id,appointment:appointments(id,doctor_id,patient_id,notes)"
-
-  # Task 2: Extract consultation data
-  - id: extract_data
+  - id: prepare_data
     type: io.kestra.plugin.scripts.python.Script
     docker:
       image: python:3.11-slim
     env:
-      CONSULTATION_DATA: "{{ outputs.fetch_consultation_data.body }}"
+      TRANSCRIPT: "{{ inputs.transcript }}"
+      DOCTOR_NOTES: "{{ inputs.doctor_notes }}"
+      APPOINTMENT_NOTES: "{{ inputs.appointment_notes }}"
     script: |
       import os
-      import json
 
-      consultation_data = json.loads(os.environ["CONSULTATION_DATA"])
-      
-      if not consultation_data or len(consultation_data) == 0:
-          raise ValueError("Consultation not found")
-      
-      consultation = consultation_data[0]
-      
-      # Extract data
-      transcript = consultation.get("transcript", "")
-      doctor_notes = consultation.get("doctor_notes", "")
-      appointment = consultation.get("appointment", {})
-      appointment_notes = appointment.get("notes", "") if appointment else ""
-      
-      # Save to files for next task
+      transcript = os.environ.get("TRANSCRIPT", "")
+      doctor_notes = os.environ.get("DOCTOR_NOTES", "")
+      appointment_notes = os.environ.get("APPOINTMENT_NOTES", "")
+
+      if not transcript or transcript.strip() == "":
+          raise ValueError("Transcript is required and cannot be empty")
+
       with open("transcript.txt", "w", encoding="utf-8") as f:
-          f.write(transcript or "No transcript available")
-      
+          f.write(transcript)
+
       with open("doctor_notes.txt", "w", encoding="utf-8") as f:
-          f.write(doctor_notes or "No doctor notes available")
-      
+          f.write(doctor_notes if doctor_notes else "No doctor notes available")
+
       with open("appointment_notes.txt", "w", encoding="utf-8") as f:
-          f.write(appointment_notes or "No appointment notes available")
-      
-      print("Data extraction completed")
+          f.write(appointment_notes if appointment_notes else "No appointment notes available")
+
+      print(f"Data prepared - Transcript: {len(transcript)} chars")
     outputFiles:
       - "transcript.txt"
       - "doctor_notes.txt"
       - "appointment_notes.txt"
 
-  # Task 3: Generate AI Summary using OpenRouter
   - id: generate_ai_summary
     type: io.kestra.plugin.scripts.python.Script
     docker:
@@ -82,59 +77,35 @@ tasks:
     env:
       OPENROUTER_API_KEY: "{{ vars.openrouter_api_key }}"
     inputFiles:
-      transcript.txt: "{{ outputs.extract_data.outputFiles['transcript.txt'] }}"
-      doctor_notes.txt: "{{ outputs.extract_data.outputFiles['doctor_notes.txt'] }}"
-      appointment_notes.txt: "{{ outputs.extract_data.outputFiles['appointment_notes.txt'] }}"
+      transcript.txt: "{{ outputs.prepare_data.outputFiles['transcript.txt'] }}"
+      doctor_notes.txt: "{{ outputs.prepare_data.outputFiles['doctor_notes.txt'] }}"
+      appointment_notes.txt: "{{ outputs.prepare_data.outputFiles['appointment_notes.txt'] }}"
     beforeCommands:
       - pip install openai
     script: |
       import os
-      import json
       from openai import OpenAI
 
-      # Initialize OpenRouter client (OpenAI-compatible API)
       client = OpenAI(
           api_key=os.environ["OPENROUTER_API_KEY"],
           base_url="https://openrouter.ai/api/v1"
       )
 
-      # Read input files
       with open("transcript.txt", "r", encoding="utf-8") as f:
           transcript = f.read()
-      
+
       with open("doctor_notes.txt", "r", encoding="utf-8") as f:
           doctor_notes = f.read()
-      
+
       with open("appointment_notes.txt", "r", encoding="utf-8") as f:
           appointment_notes = f.read()
 
-      # Create AI Summary prompt
-      summary_prompt = f"""You are a medical AI assistant. Based on the following consultation information, generate a comprehensive medical consultation summary.
+      summary_prompt = "You are a medical AI assistant. Generate a comprehensive consultation summary.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nProvide:\n1. Chief Complaint\n2. Key Symptoms\n3. Examination Findings\n4. Diagnosis\n5. Treatment Plan\n6. Follow-up"
 
-      CONSULTATION TRANSCRIPT:
-      {transcript}
-
-      DOCTOR'S NOTES:
-      {doctor_notes}
-
-      APPOINTMENT NOTES:
-      {appointment_notes}
-
-      Please provide a detailed consultation summary including:
-      1. Chief Complaint
-      2. Key Symptoms and History
-      3. Examination Findings
-      4. Diagnosis/Assessment
-      5. Treatment Plan
-      6. Follow-up Recommendations
-
-      Format the summary in clear, professional medical language suitable for clinical records."""
-
-      # Generate AI Summary
       summary_response = client.chat.completions.create(
           model="google/gemini-2.0-flash-exp:free",
           messages=[
-              {"role": "system", "content": "You are a medical AI assistant specialized in creating clinical consultation summaries."},
+              {"role": "system", "content": "You are a medical AI assistant."},
               {"role": "user", "content": summary_prompt}
           ],
           temperature=0.3,
@@ -143,15 +114,13 @@ tasks:
 
       ai_summary = summary_response.choices[0].message.content
 
-      # Save AI Summary
       with open("ai_summary.txt", "w", encoding="utf-8") as f:
           f.write(ai_summary)
 
-      print("AI Summary generated successfully")
+      print(f"AI Summary generated - {len(ai_summary)} chars")
     outputFiles:
       - "ai_summary.txt"
 
-  # Task 4: Generate Doctor Report
   - id: generate_doctor_report
     type: io.kestra.plugin.scripts.python.Script
     docker:
@@ -159,106 +128,39 @@ tasks:
     env:
       OPENROUTER_API_KEY: "{{ vars.openrouter_api_key }}"
     inputFiles:
-      transcript.txt: "{{ outputs.extract_data.outputFiles['transcript.txt'] }}"
-      doctor_notes.txt: "{{ outputs.extract_data.outputFiles['doctor_notes.txt'] }}"
-      appointment_notes.txt: "{{ outputs.extract_data.outputFiles['appointment_notes.txt'] }}"
+      transcript.txt: "{{ outputs.prepare_data.outputFiles['transcript.txt'] }}"
+      doctor_notes.txt: "{{ outputs.prepare_data.outputFiles['doctor_notes.txt'] }}"
+      appointment_notes.txt: "{{ outputs.prepare_data.outputFiles['appointment_notes.txt'] }}"
       ai_summary.txt: "{{ outputs.generate_ai_summary.outputFiles['ai_summary.txt'] }}"
     beforeCommands:
       - pip install openai
     script: |
       import os
-      import json
-      from datetime import datetime
       from openai import OpenAI
 
-      # Initialize OpenRouter client (OpenAI-compatible API)
       client = OpenAI(
           api_key=os.environ["OPENROUTER_API_KEY"],
           base_url="https://openrouter.ai/api/v1"
       )
 
-      # Read input files
       with open("transcript.txt", "r", encoding="utf-8") as f:
           transcript = f.read()
-      
+
       with open("doctor_notes.txt", "r", encoding="utf-8") as f:
           doctor_notes = f.read()
-      
+
       with open("appointment_notes.txt", "r", encoding="utf-8") as f:
           appointment_notes = f.read()
-      
+
       with open("ai_summary.txt", "r", encoding="utf-8") as f:
           ai_summary = f.read()
 
-      # Create Doctor Report prompt
-      report_prompt = f"""You are a medical AI assistant. Based on the following consultation information, generate a comprehensive, well-formatted doctor's report in Markdown format.
+      report_prompt = "Create a professional medical report in Markdown format.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nAI SUMMARY:\n" + ai_summary + "\n\nInclude sections: Patient Info, Chief Complaint, History, Physical Exam, Assessment, Treatment Plan, Investigations, Follow-up, Additional Notes. Use Markdown formatting."
 
-      CONSULTATION TRANSCRIPT:
-      {transcript}
-
-      DOCTOR'S NOTES:
-      {doctor_notes}
-
-      APPOINTMENT NOTES:
-      {appointment_notes}
-
-      AI-GENERATED SUMMARY:
-      {ai_summary}
-
-      Please create a professional medical report in Markdown format with the following structure:
-
-      # Medical Consultation Report
-
-      ## Patient Information
-      - Include relevant patient details from the consultation
-
-      ## Consultation Date & Time
-      - Document when the consultation occurred
-
-      ## Chief Complaint
-      - Primary reason for visit
-
-      ## History of Present Illness (HPI)
-      - Detailed narrative of current medical issues
-      - Timeline of symptoms
-      - Relevant medical history
-
-      ## Physical Examination
-      - Vital signs (if mentioned)
-      - Examination findings by system
-
-      ## Assessment & Diagnosis
-      - Clinical impressions
-      - Differential diagnoses if applicable
-      - Final diagnosis
-
-      ## Treatment Plan
-      - Medications prescribed (with dosage, frequency, duration)
-      - Non-pharmacological interventions
-      - Lifestyle modifications recommended
-
-      ## Investigations Ordered
-      - Laboratory tests
-      - Imaging studies
-      - Other diagnostic procedures
-
-      ## Follow-up Plan
-      - Next appointment date/timeframe
-      - Red flag symptoms to watch for
-      - When to seek immediate care
-
-      ## Additional Notes
-      - Any other relevant clinical information
-      - Patient education provided
-      - Referrals if any
-
-      Use proper Markdown formatting with headers, bullet points, bold text for emphasis, and tables where appropriate. Make it professional, comprehensive, and suitable for medical records."""
-
-      # Generate Doctor Report
       report_response = client.chat.completions.create(
           model="google/gemini-2.0-flash-exp:free",
           messages=[
-              {"role": "system", "content": "You are a medical AI assistant specialized in creating comprehensive medical reports in Markdown format."},
+              {"role": "system", "content": "You are a medical AI assistant."},
               {"role": "user", "content": report_prompt}
           ],
           temperature=0.3,
@@ -267,49 +169,71 @@ tasks:
 
       doctor_report = report_response.choices[0].message.content
 
-      # Save Doctor Report
       with open("doctor_report.md", "w", encoding="utf-8") as f:
           f.write(doctor_report)
 
-      print("Doctor Report generated successfully")
+      print(f"Doctor Report generated - {len(doctor_report)} chars")
     outputFiles:
       - "doctor_report.md"
 
-  # Task 5: Update Supabase with AI Summary and processing status
-  - id: update_consultation_summary
-    type: io.kestra.plugin.core.http.Request
-    uri: "{{ vars.supabase_url }}/rest/v1/consultations"
-    method: PATCH
-    headers:
-      apikey: "{{ vars.supabase_key }}"
-      Authorization: "Bearer {{ vars.supabase_key }}"
-      Content-Type: "application/json"
-      Prefer: "return=minimal"
-    contentType: application/json
-    options:
-      queryParameters:
-        id: "eq.{{ inputs.consultation_id }}"
-    body: |
-      {
-        "ai_summary": "{{ read(outputs.generate_ai_summary.outputFiles['ai_summary.txt']) }}",
-        "processing_status": "completed",
-        "updated_at": "{{ now() }}"
+  - id: send_results
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      CALLBACK_URL: "{{ inputs.callback_url }}"
+      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      EXECUTION_ID: "{{ execution.id }}"
+    inputFiles:
+      ai_summary.txt: "{{ outputs.generate_ai_summary.outputFiles['ai_summary.txt'] }}"
+      doctor_report.md: "{{ outputs.generate_doctor_report.outputFiles['doctor_report.md'] }}"
+    beforeCommands:
+      - pip install requests
+    script: |
+      import os
+      import requests
+      from datetime import datetime
+
+      callback_url = os.environ["CALLBACK_URL"]
+      consultation_id = os.environ["CONSULTATION_ID"]
+      execution_id = os.environ["EXECUTION_ID"]
+
+      with open("ai_summary.txt", "r", encoding="utf-8") as f:
+          ai_summary = f.read()
+
+      with open("doctor_report.md", "r", encoding="utf-8") as f:
+          doctor_report = f.read()
+
+      payload = {
+          "consultation_id": consultation_id,
+          "execution_id": execution_id,
+          "ai_summary": ai_summary,
+          "doctor_report": doctor_report,
+          "status": "completed",
+          "processed_at": datetime.utcnow().isoformat() + "Z"
       }
 
-  # Task 6: Send results to callback webhook
-  - id: send_results
-    type: io.kestra.plugin.core.http.Request
-    uri: "{{ inputs.callback_url }}"
-    method: POST
-    contentType: application/json
-    body: |
-      {
-        "consultation_id": "{{ inputs.consultation_id }}",
-        "ai_summary": "{{ read(outputs.generate_ai_summary.outputFiles['ai_summary.txt']) }}",
-        "doctor_report": "{{ read(outputs.generate_doctor_report.outputFiles['doctor_report.md']) }}",
-        "status": "completed",
-        "processed_at": "{{ now() }}"
-      }
+      max_retries = 3
+      for attempt in range(max_retries):
+          try:
+              response = requests.post(callback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+
+              if response.status_code >= 400:
+                  print(f"Callback failed: {response.status_code}")
+                  if attempt < max_retries - 1:
+                      continue
+                  else:
+                      raise Exception(f"Callback failed: {response.status_code}")
+
+              print(f"Callback sent successfully")
+              break
+
+          except requests.exceptions.RequestException as e:
+              print(f"Request error: {str(e)}")
+              if attempt < max_retries - 1:
+                  continue
+              else:
+                  raise
 
 triggers:
   - id: webhook_trigger
@@ -317,37 +241,39 @@ triggers:
     key: "{{ vars.webhook_secret_key }}"
 
 errors:
-  # Update consultation processing status to failed on error
-  - id: update_consultation_failed
-    type: io.kestra.plugin.core.http.Request
-    uri: "{{ vars.supabase_url }}/rest/v1/consultations"
-    method: PATCH
-    headers:
-      apikey: "{{ vars.supabase_key }}"
-      Authorization: "Bearer {{ vars.supabase_key }}"
-      Content-Type: "application/json"
-      Prefer: "return=minimal"
-    contentType: application/json
-    options:
-      queryParameters:
-        id: "eq.{{ inputs.consultation_id }}"
-    body: |
-      {
-        "processing_status": "failed",
-        "updated_at": "{{ now() }}"
-      }
-
-  # Send error notification to callback webhook
   - id: error_handler
-    type: io.kestra.plugin.core.http.Request
-    uri: "{{ inputs.callback_url }}"
-    method: POST
-    contentType: application/json
-    body: |
-      {
-        "consultation_id": "{{ inputs.consultation_id }}",
-        "status": "failed",
-        "error": "{{ task.error }}",
-        "failed_at": "{{ now() }}"
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      CALLBACK_URL: "{{ inputs.callback_url }}"
+      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      EXECUTION_ID: "{{ execution.id }}"
+    beforeCommands:
+      - pip install requests
+    script: |
+      import os
+      import requests
+      from datetime import datetime
+
+      callback_url = os.environ.get("CALLBACK_URL")
+      consultation_id = os.environ.get("CONSULTATION_ID")
+      execution_id = os.environ.get("EXECUTION_ID", "unknown")
+
+      if not callback_url:
+          print("No callback URL, skipping")
+          exit(0)
+
+      payload = {
+          "consultation_id": consultation_id,
+          "execution_id": execution_id,
+          "status": "failed",
+          "error": "Workflow failed",
+          "failed_at": datetime.utcnow().isoformat() + "Z"
       }
 
+      try:
+          response = requests.post(callback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+          print(f"Error callback sent: {response.status_code}")
+      except Exception as e:
+          print(f"Failed to send error callback: {e}")

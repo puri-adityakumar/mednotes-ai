@@ -61,15 +61,20 @@ export async function generateAISummary(consultationId: string) {
             return { success: false, message: 'Not authenticated' };
         }
 
-        // Verify consultation exists and belongs to the doctor
+        // Fetch all consultation data needed for AI processing
+        // This way Kestra doesn't need to access Supabase directly
         const { data: consultation, error: consultationError } = await supabase
             .from('consultations')
             .select(`
                 id,
                 appointment_id,
+                transcript,
+                doctor_notes,
                 processing_status,
                 appointment:appointments!inner (
-                    doctor_id
+                    id,
+                    doctor_id,
+                    notes
                 )
             `)
             .eq('id', consultationId)
@@ -93,6 +98,11 @@ export async function generateAISummary(consultationId: string) {
             return { success: false, message: 'AI Summary is already being generated' };
         }
 
+        // Validate that we have a transcript
+        if (!consultation.transcript || consultation.transcript.trim() === '') {
+            return { success: false, message: 'No transcript available. Please transcribe the recording first.' };
+        }
+
         // Update processing status to 'processing'
         const { error: updateError } = await supabase
             .from('consultations')
@@ -106,7 +116,8 @@ export async function generateAISummary(consultationId: string) {
             return { success: false, message: 'Failed to update processing status' };
         }
 
-        // Trigger Kestra workflow
+        // Trigger Kestra workflow with ALL the data
+        // Kestra no longer needs to access Supabase
         const kestraUrl = process.env.KESTRA_URL || 'http://localhost:8080';
         const kestraWebhookKey = process.env.KESTRA_WEBHOOK_KEY || 'jhbjbdjk4654hs';
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -120,7 +131,11 @@ export async function generateAISummary(consultationId: string) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
+                // All data Kestra needs for AI processing
                 consultation_id: consultationId,
+                transcript: consultation.transcript,
+                doctor_notes: consultation.doctor_notes || '',
+                appointment_notes: appointment.notes || '',
                 callback_url: callbackUrl,
             }),
         });
@@ -140,10 +155,40 @@ export async function generateAISummary(consultationId: string) {
             return { success: false, message: 'Failed to trigger AI summary generation' };
         }
 
+        // Parse Kestra response to get execution_id
+        // Kestra webhook returns: { id: "execution-id", namespace: "...", flowId: "...", ... }
+        let kestraExecutionId: string | null = null;
+        try {
+            const kestraResponse = await response.json();
+            kestraExecutionId = kestraResponse.id || null;
+            console.log('Kestra execution started:', kestraExecutionId);
+        } catch (parseError) {
+            console.warn('Could not parse Kestra response:', parseError);
+        }
+
+        // Update consultation with Kestra execution ID
+        if (kestraExecutionId) {
+            const { error: execUpdateError } = await supabase
+                .from('consultations')
+                .update({
+                    kestra_execution_id: kestraExecutionId,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', consultationId);
+
+            if (execUpdateError) {
+                console.warn('Failed to store Kestra execution ID:', execUpdateError);
+            }
+        }
+
         revalidatePath(`/doctor/${consultation.appointment_id}`);
         revalidatePath('/doctor');
 
-        return { success: true, message: 'AI Summary generation started successfully' };
+        return {
+            success: true,
+            message: 'AI Summary generation started successfully',
+            kestra_execution_id: kestraExecutionId
+        };
     } catch (error: any) {
         console.error('generateAISummary error:', error);
 
