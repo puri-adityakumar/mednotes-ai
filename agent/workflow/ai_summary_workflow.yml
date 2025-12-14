@@ -33,8 +33,8 @@ inputs:
     description: Webhook URL to send the AI summary and doctor report back
 
 variables:
-  openrouter_api_key: "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"
-  webhook_secret_key: "jhbjbdjk4654hs"
+  openrouter_api_key: "api_key"
+  webhook_secret_key: "something"
 
 tasks:
   - id: prepare_data
@@ -42,9 +42,11 @@ tasks:
     docker:
       image: python:3.11-slim
     env:
-      TRANSCRIPT: "{{ inputs.transcript }}"
-      DOCTOR_NOTES: "{{ inputs.doctor_notes }}"
-      APPOINTMENT_NOTES: "{{ inputs.appointment_notes }}"
+      # When triggered via webhook, data comes from trigger.body
+      # When triggered via execution API, data comes from inputs
+      TRANSCRIPT: "{{ trigger.body.transcript ?? inputs.transcript }}"
+      DOCTOR_NOTES: "{{ trigger.body.doctor_notes ?? inputs.doctor_notes ?? '' }}"
+      APPOINTMENT_NOTES: "{{ trigger.body.appointment_notes ?? inputs.appointment_notes ?? '' }}"
     script: |
       import os
 
@@ -103,7 +105,7 @@ tasks:
       summary_prompt = "You are a medical AI assistant. Generate a comprehensive consultation summary.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nProvide:\n1. Chief Complaint\n2. Key Symptoms\n3. Examination Findings\n4. Diagnosis\n5. Treatment Plan\n6. Follow-up"
 
       summary_response = client.chat.completions.create(
-          model="google/gemini-2.0-flash-exp:free",
+          model="amazon/nova-2-lite-v1:free",
           messages=[
               {"role": "system", "content": "You are a medical AI assistant."},
               {"role": "user", "content": summary_prompt}
@@ -158,7 +160,7 @@ tasks:
       report_prompt = "Create a professional medical report in Markdown format.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nAI SUMMARY:\n" + ai_summary + "\n\nInclude sections: Patient Info, Chief Complaint, History, Physical Exam, Assessment, Treatment Plan, Investigations, Follow-up, Additional Notes. Use Markdown formatting."
 
       report_response = client.chat.completions.create(
-          model="google/gemini-2.0-flash-exp:free",
+          model="amazon/nova-2-lite-v1:free",
           messages=[
               {"role": "system", "content": "You are a medical AI assistant."},
               {"role": "user", "content": report_prompt}
@@ -181,8 +183,8 @@ tasks:
     docker:
       image: python:3.11-slim
     env:
-      CALLBACK_URL: "{{ inputs.callback_url }}"
-      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      CALLBACK_URL: "{{ trigger.body.callback_url ?? inputs.callback_url }}"
+      CONSULTATION_ID: "{{ trigger.body.consultation_id ?? inputs.consultation_id }}"
       EXECUTION_ID: "{{ execution.id }}"
     inputFiles:
       ai_summary.txt: "{{ outputs.generate_ai_summary.outputFiles['ai_summary.txt'] }}"
@@ -246,8 +248,8 @@ errors:
     docker:
       image: python:3.11-slim
     env:
-      CALLBACK_URL: "{{ inputs.callback_url }}"
-      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      CALLBACK_URL: "{{ trigger.body.callback_url ?? inputs.callback_url ?? '' }}"
+      CONSULTATION_ID: "{{ trigger.body.consultation_id ?? inputs.consultation_id ?? '' }}"
       EXECUTION_ID: "{{ execution.id }}"
     beforeCommands:
       - pip install requests

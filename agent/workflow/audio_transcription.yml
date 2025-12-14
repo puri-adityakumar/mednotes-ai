@@ -1,0 +1,126 @@
+id: audio_transcription_workflow
+namespace: ai.workflows
+
+inputs:
+  - id: audio_file_url
+    type: STRING
+    required: true
+    description: Supabase storage URL for the audio file (signed URL if bucket is private)
+
+  - id: callback_url
+    type: STRING
+    required: true
+    description: Webhook URL to send the transcript back
+
+  - id: record_id
+    type: STRING
+    required: true
+    description: Database record ID to update
+
+variables:
+  supabase_url: "https://supabase.supabase.co"
+  supabase_key: "REDACT_ME_IN_PROD" # move to Kestra Secrets
+  assemblyai_api_key: "REDACT_ME_IN_PROD" # move to Kestra Secrets
+  webhook_secret_key: "REDACT_ME_IN_PROD"
+
+tasks:
+  # Task 1: Download audio file from Supabase (works with public or signed URLs)
+  - id: download_audio
+    type: io.kestra.plugin.core.http.Download
+    uri: "{{ inputs.audio_file_url }}"
+    # If you MUST hit a private object URL without a signed URL, uncomment headers:
+    # headers:
+    #   Authorization: "Bearer {{ vars.supabase_key }}"
+
+  # Task 2: Upload to AssemblyAI, request transcription, poll until complete
+  - id: transcribe_audio
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      ASSEMBLYAI_API_KEY: "{{ vars.assemblyai_api_key }}"
+    inputFiles:
+      audio.bin: "{{ outputs.download_audio.uri }}"
+    beforeCommands:
+      - pip install requests
+    script: |
+      import os, requests, time
+
+      AAI_KEY = os.environ["ASSEMBLYAI_API_KEY"]
+      HEADERS = {"authorization": AAI_KEY}
+
+      # 1) Upload raw bytes to AssemblyAI so we don't need a public URL
+      def upload_file(path):
+          url = "https://api.assemblyai.com/v2/upload"
+          with open(path, "rb") as f:
+              # stream in chunks
+              resp = requests.post(url, headers=HEADERS, data=f)
+          if resp.status_code not in (200, 201):
+              raise RuntimeError(f"Upload failed ({resp.status_code}): {resp.text}")
+          return resp.json()["upload_url"]
+
+      upload_url = upload_file("audio.bin")
+
+      # 2) Create transcript job using the upload_url
+      create_resp = requests.post(
+          "https://api.assemblyai.com/v2/transcript",
+          headers={**HEADERS, "content-type": "application/json"},
+          json={ "audio_url": upload_url }
+      )
+      if create_resp.status_code not in (200, 201):
+          raise RuntimeError(f"Transcript create failed ({create_resp.status_code}): {create_resp.text}")
+
+      transcript_id = create_resp.json()["id"]
+      poll_url = f"https://api.assemblyai.com/v2/transcript/{transcript_id}"
+
+      # 3) Poll for completion
+      while True:
+          r = requests.get(poll_url, headers=HEADERS)
+          if r.status_code != 200:
+              raise RuntimeError(f"Polling failed ({r.status_code}): {r.text}")
+          data = r.json()
+          status = data.get("status")
+          if status == "completed":
+              text = data.get("text", "")
+              with open("transcript.txt", "w", encoding="utf-8") as f:
+                  f.write(text or "")
+              print("Transcription completed.")
+              break
+          if status == "error":
+              raise RuntimeError(f"Transcription failed: {data.get('error')}")
+          time.sleep(3)
+    outputFiles:
+      - "transcript.txt"
+
+  # Task 3: Send transcript back to webhook
+  - id: send_transcript
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ inputs.callback_url }}"
+    method: POST
+    contentType: application/json
+    body: |
+      {
+        "record_id": "{{ inputs.record_id }}",
+        "transcript": "{{ read(outputs.transcribe_audio.outputFiles['transcript.txt']) }}",
+        "status": "completed",
+        "processed_at": "{{ now() }}"
+      }
+
+triggers:
+  - id: webhook_trigger
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "{{ vars.webhook_secret_key }}"
+
+errors:
+  - id: error_handler
+    type: io.kestra.plugin.core.http.Request
+    uri: "{{ inputs.callback_url }}"
+    method: POST
+    contentType: application/json
+    body: |
+      {
+        "record_id": "{{ inputs.record_id }}",
+        "status": "failed",
+        "error": "{{ task.error }}",
+        "failed_at": "{{ now() }}"
+      }
