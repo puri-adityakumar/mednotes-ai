@@ -118,14 +118,14 @@ export async function generateAISummary(consultationId: string) {
 
         // Trigger Kestra workflow with ALL the data
         // Kestra no longer needs to access Supabase
-        const kestraUrl = process.env.KESTRA_URL || 'http://localhost:8080';
-        const kestraWebhookKey = process.env.KESTRA_WEBHOOK_KEY || 'jhbjbdjk4654hs';
+        const kestraUrl = process.env.KESTRA_URL || 'https://kestra.astraa.tech';
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
         const callbackUrl = `${appUrl}/api/kestra/callback`;
 
-        const webhookUrl = `${kestraUrl}/api/v1/executions/webhook/ai.workflows/ai_summary_workflow/${kestraWebhookKey}`;
+        // Kestra execution API: POST /api/v1/main/executions/{namespace}/{flowId}
+        const kestraExecutionUrl = `${kestraUrl}/api/v1/main/executions/ai.workflows/ai_summary_workflow`;
 
-        const response = await fetch(webhookUrl, {
+        const response = await fetch(kestraExecutionUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
