@@ -16,14 +16,21 @@ interface Message {
 
 interface AIChatTabProps {
     appointment: any;
+    userType?: 'patient' | 'doctor';
 }
 
-export function AIChatTab({ appointment }: AIChatTabProps) {
+export function AIChatTab({ appointment, userType = 'patient' }: AIChatTabProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const consultation = appointment?.consultation && Array.isArray(appointment.consultation)
+        ? appointment.consultation[0]
+        : appointment?.consultation;
+
+    const consultationId = consultation?.id as string | undefined;
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,24 +38,37 @@ export function AIChatTab({ appointment }: AIChatTabProps) {
 
     // Load existing chat messages
     useEffect(() => {
-        if (!isInitialized && appointment?.consultation?.id) {
+        if (!isInitialized && consultationId) {
             loadChatHistory();
             setIsInitialized(true);
         }
-    }, [appointment, isInitialized]);
+    }, [consultationId, isInitialized]);
 
     const loadChatHistory = async () => {
         try {
-            const response = await fetch(`/api/chat/rag/history?consultationId=${appointment.consultation?.id || ''}`);
+            const response = await fetch(`/api/chat/rag/history?consultationId=${consultationId || ''}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.messages && data.messages.length > 0) {
-                    setMessages(data.messages.map((msg: any) => ({
-                        id: msg.id,
-                        role: msg.user_type === 'patient' ? 'user' : 'assistant',
-                        content: msg.message || msg.ai_response,
-                        timestamp: new Date(msg.created_at),
-                    })));
+                    const filtered = data.messages.filter((msg: any) => msg.user_type === userType);
+                    const hydrated: Message[] = filtered.flatMap((msg: any) => {
+                        const createdAt = new Date(msg.created_at);
+                        const userMsg: Message = {
+                            id: `${msg.id}-user`,
+                            role: 'user',
+                            content: msg.message,
+                            timestamp: createdAt,
+                        };
+                        const assistantMsg: Message = {
+                            id: `${msg.id}-assistant`,
+                            role: 'assistant',
+                            content: msg.ai_response,
+                            // ensure stable ordering after the user message
+                            timestamp: new Date(createdAt.getTime() + 1),
+                        };
+                        return [userMsg, assistantMsg].filter(m => !!m.content);
+                    });
+                    setMessages(hydrated);
                 }
             }
         } catch (error) {
@@ -80,7 +100,8 @@ export function AIChatTab({ appointment }: AIChatTabProps) {
                 body: JSON.stringify({
                     message: currentInput,
                     appointmentId: appointment.id,
-                    consultationId: appointment.consultation?.id || null,
+                    consultationId: consultationId || null,
+                    userType,
                 }),
             });
 
@@ -119,12 +140,8 @@ export function AIChatTab({ appointment }: AIChatTabProps) {
         }
     };
 
-    const consultation = appointment.consultation && Array.isArray(appointment.consultation) 
-        ? appointment.consultation[0] 
-        : appointment.consultation;
-
     return (
-        <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col h-[600px]">
+        <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col">
             <CardHeader className="border-b border-gray-100 dark:border-zinc-800">
                 <CardTitle className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                     <Bot className="w-5 h-5 text-teal-600" />
