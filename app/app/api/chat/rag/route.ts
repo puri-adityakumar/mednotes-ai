@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { openai } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';
+import { groq } from '@ai-sdk/groq';
 import { generateText } from 'ai';
 
 export async function POST(request: NextRequest) {
@@ -12,7 +13,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { message, appointmentId, consultationId } = await request.json();
+    const { message, appointmentId, consultationId, userType } = await request.json();
+
+    const normalizedUserType: 'patient' | 'doctor' =
+      userType === 'doctor' ? 'doctor' : 'patient';
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest) {
       contextParts.push("Doctor's Report: Pending (consultation not started yet)");
     }
 
-    // 3. Get existing chat history for context
+    // 3. Get existing chat history for context (per user type)
     let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
     
     if (consultationId) {
@@ -95,6 +99,7 @@ export async function POST(request: NextRequest) {
         .from('chat_messages')
         .select('message, ai_response, user_type')
         .eq('consultation_id', consultationId)
+        .eq('user_type', normalizedUserType)
         .order('created_at', { ascending: true })
         .limit(10);
 
@@ -107,7 +112,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Build system prompt with RAG context
-    const systemPrompt = `You are a helpful AI medical assistant helping a patient understand their medical appointment and consultation.
+    const systemPrompt = normalizedUserType === 'doctor'
+      ? `You are a helpful AI medical assistant supporting a doctor during a patient appointment and consultation review.
+
+Doctor Name: ${profile?.first_name || 'Doctor'} ${profile?.last_name || ''}
+
+CONTEXT FROM PATIENT'S RECORDS:
+${contextParts.join('\n\n---\n\n')}
+
+IMPORTANT INSTRUCTIONS:
+- Use the provided context to answer questions accurately
+- Be professional, concise, and clinically oriented
+- If information is marked as "Pending" or "not yet available", clearly state that
+- If you don't have information in the context, say so rather than making assumptions
+- Do not invent patient data or add diagnoses/treatments not present in the records
+
+Answer the doctor's questions based on the context provided above.`
+      : `You are a helpful AI medical assistant helping a patient understand their medical appointment and consultation.
 
 Patient Name: ${profile?.first_name || 'Patient'} ${profile?.last_name || ''}
 
@@ -124,17 +145,43 @@ IMPORTANT INSTRUCTIONS:
 
 Answer the patient's questions based on the context provided above.`;
 
-    // Generate AI response
-    const result = await generateText({
-      model: openai('gpt-4o-mini'),
-      system: systemPrompt,
-      messages: [
-        ...conversationHistory,
-        { role: 'user', content: message },
-      ],
-    });
+    // Generate AI response (Google first, fallback to Groq — similar to booking route)
+    const messagesForModel = [
+      ...conversationHistory,
+      { role: 'user' as const, content: message },
+    ];
 
-    const response = result.text;
+    let response: string | null = null;
+    let providerUsed: 'google' | 'groq' | null = null;
+
+    try {
+      const result = await generateText({
+        model: google('gemini-2.5-flash'),
+        system: systemPrompt,
+        messages: messagesForModel,
+        maxRetries: 0,
+      });
+      response = result.text;
+      providerUsed = 'google';
+    } catch (googleError) {
+      console.error('Google model failed in RAG route, falling back to Groq:', googleError);
+      const result = await generateText({
+        model: groq('llama-3.3-70b-versatile'),
+        system: systemPrompt,
+        messages: messagesForModel,
+        maxRetries: 0,
+      });
+      response = result.text;
+      providerUsed = 'groq';
+    }
+
+    console.log('✅ RAG chat response generated', {
+      provider: providerUsed,
+      appointmentId,
+      consultationId: consultationId || null,
+      userId: user.id,
+      responseLength: response?.length || 0,
+    });
 
     // Save the conversation to database (only if consultation exists)
     if (consultationId) {
@@ -143,7 +190,7 @@ Answer the patient's questions based on the context provided above.`;
         .insert({
           consultation_id: consultationId,
           user_id: user.id,
-          user_type: 'patient',
+          user_type: normalizedUserType,
           message: message,
           ai_response: response,
         });

@@ -2,10 +2,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Calendar, User, FileText, Activity, Clock, FileAudio, FileCheck, Info } from "lucide-react";
+import { ArrowLeft, Calendar, User, FileText, Activity, Clock, FileAudio, FileCheck, Info, Bot } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { AppointmentActions } from "@/components/doctors/AppointmentActions";
+import { MessageResponse } from "@/components/ai-elements/message";
+import { normalizeMarkdown } from "@/lib/markdown";
+import { AIChatTab } from "@/components/patients/AIChatTab";
 
 export default async function AppointmentDetailsPage({
     params,
@@ -118,10 +121,14 @@ export default async function AppointmentDetailsPage({
 
             {/* Tabs */}
             <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 lg:w-auto">
+                <TabsList className="grid w-full grid-cols-5 lg:w-auto">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="consultation">Consultation</TabsTrigger>
                     <TabsTrigger value="notes">Doctor Notes</TabsTrigger>
+                    <TabsTrigger value="ai-chat" className="flex items-center gap-2">
+                        <Bot className="h-4 w-4" />
+                        AI Chat
+                    </TabsTrigger>
                     <TabsTrigger value="reports" disabled>Reports</TabsTrigger>
                 </TabsList>
 
@@ -233,9 +240,9 @@ export default async function AppointmentDetailsPage({
                                             </CardTitle>
                                         </CardHeader>
                                         <CardContent className="pt-6">
-                                            <div className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm bg-gray-50 dark:bg-zinc-900 p-6 rounded-md border border-gray-100 dark:border-zinc-800">
+                                            <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm bg-gray-50 dark:bg-zinc-900 p-6 rounded-md border border-gray-100 dark:border-zinc-800">
                                                 {consultation.ai_summary || "No summary generated."}
-                                            </div>
+                                            </MessageResponse>
                                         </CardContent>
                                     </Card>
 
@@ -281,9 +288,9 @@ export default async function AppointmentDetailsPage({
                         </CardHeader>
                         <CardContent>
                             {consultation?.doctor_notes ? (
-                                <div className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
-                                    {consultation.doctor_notes}
-                                </div>
+                                <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
+                                    {normalizeMarkdown(consultation.doctor_notes)}
+                                </MessageResponse>
                             ) : (
                                 <div className="text-center py-12">
                                     <Info className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
@@ -292,6 +299,11 @@ export default async function AppointmentDetailsPage({
                             )}
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                {/* AI Chat Tab */}
+                <TabsContent value="ai-chat" className="space-y-6">
+                    <AIChatTab appointment={appointment} userType="doctor" />
                 </TabsContent>
 
                 {/* Reports Tab (Disabled for now) */}

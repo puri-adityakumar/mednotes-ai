@@ -66,7 +66,7 @@ export function AppointmentDetailSidebar({ appointment, chatId }: AppointmentDet
                     <DoctorReportTab consultation={appointment.consultation} />
                 )}
                 {activeTab === 'ai-chat' && (
-                    <AIChatTab appointment={appointment} />
+                    <AIChatTab appointment={appointment} userType="patient" />
                 )}
             </div>
         </div>
