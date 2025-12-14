@@ -8,16 +8,19 @@ import { MessageSquare, Loader2 } from "lucide-react";
 
 interface ChatHistoryTabProps {
     appointmentId: string;
+    chatId?: string;
 }
 
 interface ChatMessage {
     id: string;
+    role?: 'user' | 'assistant' | string | null;
     message: string;
     ai_response: string;
     created_at: string;
+    chat_id?: string;
 }
 
-export function ChatHistoryTab({ appointmentId }: ChatHistoryTabProps) {
+export function ChatHistoryTab({ appointmentId, chatId }: ChatHistoryTabProps) {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -29,11 +32,15 @@ export function ChatHistoryTab({ appointmentId }: ChatHistoryTabProps) {
                 setError(null);
                 const supabase = createClient();
 
-                const { data, error: fetchError } = await supabase
+                let query = supabase
                     .from('booking_chat')
                     .select('*')
-                    .eq('appointment_id', appointmentId)
                     .order('created_at', { ascending: true });
+
+                // Prefer chatId when available (pre-booking session history)
+                query = chatId ? query.eq('chat_id', chatId) : query.eq('appointment_id', appointmentId);
+
+                const { data, error: fetchError } = await query;
 
                 if (fetchError) {
                     console.error('Error fetching chat history:', fetchError);
@@ -52,7 +59,7 @@ export function ChatHistoryTab({ appointmentId }: ChatHistoryTabProps) {
         if (appointmentId) {
             fetchChatHistory();
         }
-    }, [appointmentId]);
+    }, [appointmentId, chatId]);
 
     return (
         <Card className="w-full bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 shadow-sm">
@@ -84,24 +91,45 @@ export function ChatHistoryTab({ appointmentId }: ChatHistoryTabProps) {
                         <div className="space-y-4">
                             {chatMessages.map((message) => (
                                 <div key={message.id} className="space-y-3">
-                                    {/* User Message */}
-                                    <div className="flex justify-end">
-                                        <div className="max-w-[80%] bg-teal-600 text-white rounded-lg px-4 py-2">
-                                            <p className="text-sm whitespace-pre-wrap">{message.message}</p>
-                                            <p className="text-xs mt-1 opacity-70">
-                                                {new Date(message.created_at).toLocaleString()}
-                                            </p>
+                                    {message.role ? (
+                                        // Per-message rows (preferred)
+                                        <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div
+                                                className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                                                    message.role === 'user'
+                                                        ? 'bg-teal-600 text-white'
+                                                        : 'bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white'
+                                                }`}
+                                            >
+                                                <p className="text-sm whitespace-pre-wrap">
+                                                    {message.role === 'user' ? message.message : message.ai_response}
+                                                </p>
+                                                <p className="text-xs mt-1 opacity-70">
+                                                    {new Date(message.created_at).toLocaleString()}
+                                                </p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    {/* AI Response */}
-                                    <div className="flex justify-start">
-                                        <div className="max-w-[80%] bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white rounded-lg px-4 py-2">
-                                            <p className="text-sm whitespace-pre-wrap">{message.ai_response}</p>
-                                            <p className="text-xs mt-1 opacity-70">
-                                                {new Date(message.created_at).toLocaleString()}
-                                            </p>
-                                        </div>
-                                    </div>
+                                    ) : (
+                                        // Legacy rows (one exchange per row)
+                                        <>
+                                            <div className="flex justify-end">
+                                                <div className="max-w-[80%] bg-teal-600 text-white rounded-lg px-4 py-2">
+                                                    <p className="text-sm whitespace-pre-wrap">{message.message}</p>
+                                                    <p className="text-xs mt-1 opacity-70">
+                                                        {new Date(message.created_at).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-start">
+                                                <div className="max-w-[80%] bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-white rounded-lg px-4 py-2">
+                                                    <p className="text-sm whitespace-pre-wrap">{message.ai_response}</p>
+                                                    <p className="text-xs mt-1 opacity-70">
+                                                        {new Date(message.created_at).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             ))}
                         </div>

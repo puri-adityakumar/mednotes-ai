@@ -35,14 +35,24 @@ export async function POST(request: NextRequest) {
     // 1. Get booking chat messages
     const { data: bookingChat } = await supabase
       .from('booking_chat')
-      .select('message, ai_response')
+      .select('role, message, ai_response')
       .eq('appointment_id', appointmentId)
       .order('created_at', { ascending: true });
 
     if (bookingChat && bookingChat.length > 0) {
       const bookingContext = bookingChat
-        .map(msg => `Patient: ${msg.message}\nAssistant: ${msg.ai_response}`)
-        .join('\n\n');
+        .map((msg: any) => {
+          // Preferred: per-message rows using `role`
+          if (msg.role) {
+            if (msg.role === 'user') return `Patient: ${msg.message}`;
+            if (msg.role === 'assistant') return `Assistant: ${msg.ai_response}`;
+            // Unknown role - best effort
+            return `Message: ${msg.message || msg.ai_response || ''}`;
+          }
+          // Legacy: one exchange per row
+          return `Patient: ${msg.message}\nAssistant: ${msg.ai_response}`;
+        })
+        .join('\n');
       contextParts.push(`Booking Conversation:\n${bookingContext}`);
     } else {
       contextParts.push('Booking Conversation: Not available (pending)');

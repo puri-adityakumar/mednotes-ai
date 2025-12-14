@@ -120,6 +120,14 @@ export async function POST(request: NextRequest) {
       const { randomUUID } = await import('crypto');
       currentChatId = randomUUID();
     }
+    
+    // Debug: verify whether chatId is stable or regenerating
+    console.log('🧵 Booking chat session:', {
+      incomingChatId: chatId || null,
+      resolvedChatId: currentChatId,
+      userId: user.id,
+      messagesCount: messages.length,
+    });
 
     // Get patient profile
     const { data: profile } = await supabase
@@ -128,19 +136,33 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    // Save user message immediately (before streaming)
+    /**
+     * Store one row per message, grouped by `chat_id` (session).
+     *
+     * NOTE: `ai_response` is NOT NULL in the current DB schema, so for user rows
+     * we store `ai_response: ''` (placeholder), and for assistant rows we store
+     * `message: ''` (placeholder). The `role` column indicates which field
+     * contains the real content.
+     */
     try {
-      await supabase
+      const { error: insertError } = await supabase
         .from('booking_chat')
         .insert({
           patient_id: user.id,
           chat_id: currentChatId,
           role: 'user',
           message: userMessage,
-        });
-      console.log('✅ User message saved to database');
+          ai_response: '', // NOT NULL column - placeholder for user rows
+        })
+        .select('id');
+
+      if (insertError) {
+        console.error('Error inserting booking_chat user message row:', insertError);
+      } else {
+        console.log('✅ booking_chat user message saved');
+      }
     } catch (dbError) {
-      console.error('Error saving user message:', dbError);
+      console.error('Error saving booking_chat user message row:', dbError);
       // Continue even if DB save fails
     }
 
@@ -169,6 +191,13 @@ Available doctors:
 ${doctorsList}
 
 🚨 CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
+
+🩺 INITIAL CONVERSATION (MANDATORY)
+- Start by asking:
+  1. How the patient is feeling
+  2. What symptoms or problem they are experiencing
+- Keep questions short, empathetic, and patient-friendly.
+- Do NOT diagnose. Only collect information.
 
 1. **YOU MUST USE TOOLS TO BOOK APPOINTMENTS** - When the patient provides:
    - Doctor name (e.g., "Dr. Shekhar Maurya" or "Shekhar Maurya")
@@ -441,6 +470,7 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
               appointment_date: appointmentDateTimeISO,
               status: 'scheduled',
               notes: notes || null,
+              booking_chat_id: currentChatId,
             })
             .select()
             .single();
@@ -467,12 +497,22 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
 
           // Link booking chat messages to the appointment (non-blocking)
           try {
-            await supabase
+            const { data: linkedRows, error: linkError } = await supabase
               .from('booking_chat')
               .update({ appointment_id: appointment.id })
               .eq('patient_id', user.id)
               .eq('chat_id', currentChatId)
-              .is('appointment_id', null);
+              .select('id');
+            
+            if (linkError) {
+              console.error('Error linking chat to appointment (update failed):', linkError);
+            } else {
+              console.log('✅ Linked booking_chat rows to appointment:', {
+                chatId: currentChatId,
+                appointmentId: appointment.id,
+                updatedRows: linkedRows?.length || 0,
+              });
+            }
           } catch (linkError) {
             console.error('Error linking chat to appointment:', linkError);
             // Don't fail the booking if linking fails
@@ -596,16 +636,21 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
               console.log('❌ Groq: No appointment result found in toolResults or steps');
             }
 
-            // Save assistant message as a separate row
-            await supabase
+            // Insert assistant message as its own row
+            const { error: assistantInsertError } = await supabase
               .from('booking_chat')
               .insert({
                 patient_id: user.id,
                 chat_id: currentChatId,
                 role: 'assistant',
-                message: text,
+                message: '', // placeholder for assistant rows (NOT NULL column)
+                ai_response: text,
                 appointment_id: appointmentId,
               });
+
+            if (assistantInsertError) {
+              console.error('Groq: Error inserting booking_chat assistant row:', assistantInsertError);
+            }
             
             // Mark as saved to prevent duplicate inserts
             assistantMessageSaved = true;
@@ -720,16 +765,21 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
             console.log('❌ Google: No appointment result found in toolResults or steps');
           }
 
-          // Save assistant message as a separate row
-          await supabase
+          // Insert assistant message as its own row
+          const { error: assistantInsertError } = await supabase
             .from('booking_chat')
             .insert({
               patient_id: user.id,
               chat_id: currentChatId,
               role: 'assistant',
-              message: text,
+              message: '', // placeholder for assistant rows (NOT NULL column)
+              ai_response: text,
               appointment_id: appointmentId,
             });
+
+          if (assistantInsertError) {
+            console.error('Google: Error inserting booking_chat assistant row:', assistantInsertError);
+          }
           
           // Mark as saved to prevent duplicate inserts during fallback
           assistantMessageSaved = true;
@@ -752,8 +802,15 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
     // If Google already failed (detected in onError), immediately use Groq
     if (googleFailed || !googleResponse.body) {
       console.log('Google failed early, immediately switching to Groq');
-      const groqResult = createStreamWithCallback(groq('openai/gpt-oss-120b'));
-      return groqResult.toUIMessageStreamResponse();
+      const groqResult = createStreamWithCallback(groq('llama-3.3-70b-versatile'));
+      const groqResponse = groqResult.toUIMessageStreamResponse();
+      const headers = new Headers(groqResponse.headers);
+      headers.set('x-chat-id', currentChatId);
+      return new Response(groqResponse.body, {
+        headers,
+        status: groqResponse.status,
+        statusText: groqResponse.statusText,
+      });
     }
 
     const reader = googleResponse.body.getReader();
@@ -763,11 +820,49 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
 
     const wrappedStream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+        let isCancelled = false;
+
+        const safeClose = () => {
+          if (isClosed) return;
+          try {
+            controller.close();
+          } catch {
+            // ignore double-close
+          } finally {
+            isClosed = true;
+          }
+        };
+
+        const safeEnqueue = (value: any) => {
+          if (isClosed || isCancelled) return false;
+          try {
+            controller.enqueue(value);
+            return true;
+          } catch (e: any) {
+            // Most common case: ERR_INVALID_STATE when controller is already closed.
+            isClosed = true;
+            return false;
+          }
+        };
+
+        const safeError = (err: any) => {
+          if (isClosed || isCancelled) return;
+          try {
+            controller.error(err);
+          } catch {
+            // ignore if already closed
+          } finally {
+            isClosed = true;
+          }
+        };
+
         let shouldFallback = false;
         
         try {
           // Try to read from Google stream
           while (true) {
+            if (isCancelled || isClosed) return;
             const { done, value } = await reader.read();
             
             if (done) {
@@ -776,7 +871,7 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
                 shouldFallback = true;
                 break;
               }
-              controller.close();
+              safeClose();
               return;
             }
             
@@ -803,7 +898,7 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
               // If decoding fails, continue - might be binary data
             }
             
-            controller.enqueue(value);
+            safeEnqueue(value);
           }
         } catch (error) {
           console.error('Error reading Google stream, falling back to Groq:', error);
@@ -814,36 +909,49 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
         // Fallback to Groq if needed
         if (shouldFallback || googleFailed) {
           try {
+            if (isCancelled || isClosed) return;
             console.log('Switching to Groq fallback provider...');
-            const groqResult = createStreamWithCallback(groq('moonshotai/kimi-k2-instruct-0905'));
+            const groqResult = createStreamWithCallback(groq('llama-3.3-70b-versatile'));
             const groqResponse = groqResult.toUIMessageStreamResponse();
             
             if (groqResponse.body) {
               const groqReader = groqResponse.body.getReader();
               while (true) {
+                if (isCancelled || isClosed) {
+                  groqReader.cancel().catch(() => {});
+                  return;
+                }
                 const { done, value } = await groqReader.read();
                 if (done) {
-                  controller.close();
+                  safeClose();
                   break;
                 }
-                controller.enqueue(value);
+                safeEnqueue(value);
               }
             } else {
-              controller.close();
+              safeClose();
             }
           } catch (groqError) {
             console.error('Groq fallback also failed:', groqError);
-            controller.error(groqError);
+            safeError(groqError);
           }
         }
       },
       cancel() {
+        // Client disconnected or cancelled the request mid-stream.
+        // Prevent any further writes to the controller.
+        // (Note: cancel may race with start() execution.)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // @ts-ignore - scoped vars are in start(), but we still cancel upstream reader here
         reader.cancel().catch(() => {});
       },
     });
 
+    const headers = new Headers(googleResponse.headers);
+    headers.set('x-chat-id', currentChatId);
+
     return new Response(wrappedStream, {
-      headers: googleResponse.headers,
+      headers,
       status: googleResponse.status,
       statusText: googleResponse.statusText,
     });

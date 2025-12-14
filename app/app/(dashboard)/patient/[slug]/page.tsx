@@ -24,6 +24,7 @@ export default async function AppointmentDetailPage({
             appointment_date,
             status,
             notes,
+            booking_chat_id,
             patient_id,
             doctor_id,
             doctor:profiles!doctor_id (
@@ -59,13 +60,15 @@ export default async function AppointmentDetailPage({
         );
     }
 
+    const bookingChatId = (appointment as any)?.booking_chat_id ?? null;
+
     return (
         <div className="flex flex-col min-h-screen bg-background">
             <AuthNavbar />
             <main className="flex-1 overflow-y-auto">
                 <div className="w-full p-8">
                     <div className="max-w-7xl mx-auto">
-                        <AppointmentDetailSidebar appointment={appointment} />
+                        <AppointmentDetailSidebar appointment={appointment} chatId={bookingChatId} />
                     </div>
                 </div>
             </main>
