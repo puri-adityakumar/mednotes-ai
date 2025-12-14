@@ -1,6 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { AppointmentListClient } from "./AppointmentListClient";
 
+/**
+ * Renders the logged-in patient's appointment list including doctor details.
+ *
+ * Fetches appointments for the current authenticated user and supplies them to AppointmentListClient.
+ *
+ * @returns A React element that renders the patient's appointments; `null` if no user is authenticated. If fetching appointments fails, returns a div containing "Error loading appointments".
+ */
 export async function AppointmentList() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -31,4 +38,3 @@ export async function AppointmentList() {
 
     return <AppointmentListClient appointments={appointments || []} />;
 }
-

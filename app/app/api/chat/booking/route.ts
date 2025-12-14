@@ -7,8 +7,13 @@ import { z } from 'zod';
 import moment from 'moment-timezone';
 
 /**
- * Parse date/time string as IST time, handling relative dates like "tomorrow"
- * This ensures times are treated as IST times (not converted from UTC)
+ * Parse a date and time expressed in various human formats and interpret them as Asia/Kolkata (IST) local time.
+ *
+ * Recognizes relative date keywords "today", "tomorrow", "after tomorrow", and "day after tomorrow". Attempts multiple common date/time formats, falls back to parsing the date and time components separately, and finally to natural-language parsing. The resulting Moment is set to the Asia/Kolkata timezone.
+ *
+ * @param dateStr - A date string (e.g., "2025-12-15", "15 December 2025") or a relative keyword ("today", "tomorrow", "day after tomorrow")
+ * @param timeStr - A time string (e.g., "3:00 PM", "15:00")
+ * @returns A Moment object set to the Asia/Kolkata timezone representing the combined date and time, or `null` if parsing fails
  */
 function parseDateTimeAsIST(dateStr: string, timeStr: string): moment.Moment | null {
   const combined = `${dateStr.trim()} ${timeStr.trim()}`;
@@ -93,6 +98,18 @@ function parseDateTimeAsIST(dateStr: string, timeStr: string): moment.Moment | n
   return parsed.isValid() ? parsed : null;
 }
 
+/**
+ * Handle POST requests for the booking chat API: validate the user and payload, persist the user message, invoke the assistant (Google model with Groq fallback) with tools for checking availability and booking, and stream the assistant's response back to the client.
+ *
+ * The handler:
+ * - Requires an authenticated user (returns 401 if missing).
+ * - Expects a JSON body with `messages` (UIMessage[]) and optional `chatId`; returns 400 if `messages` is absent or empty.
+ * - Saves the last user message to `booking_chat` (best-effort).
+ * - Provides tools to the assistant: `checkAvailability` and `bookAppointment` (both parse dates as IST). `bookAppointment` will create an appointment row and link booking chat rows to that appointment.
+ * - Streams the assistant output to the client using Google (gemini-2.5-flash) and falls back to Groq providers on errors; saves the assistant message to `booking_chat` after streaming completes (guarded to avoid duplicates).
+ *
+ * @param request - NextRequest whose JSON body must contain `messages: UIMessage[]` and may contain `chatId: string`.
+ * @returns A Response streaming the assistant's UI messages (Google model primary; Groq fallback). May return 401 (Unauthorized), 400 (Bad Request), or 500 (Internal server error) for error conditions.
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -852,4 +869,3 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
     return new Response('Internal server error', { status: 500 });
   }
 }
-
