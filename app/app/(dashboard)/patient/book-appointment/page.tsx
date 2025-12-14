@@ -10,16 +10,16 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 export default function BookAppointmentPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
-  const [chatId, setChatId] = useState<string | null>(null);
-  
-  // Initialize chat_id on mount (generate new UUID for new chat session)
-  useEffect(() => {
-    if (!chatId) {
-      // Generate a new UUID for this chat session
-      const newChatId = crypto.randomUUID();
-      setChatId(newChatId);
-    }
-  }, [chatId]);
+  const [chatId, setChatId] = useState<string>(() => {
+    // Persist chat session id across Fast Refresh / tab refresh
+    const KEY = 'bookingChatId';
+    const existing = typeof window !== 'undefined' ? window.sessionStorage.getItem(KEY) : null;
+    if (existing) return existing;
+    const newChatId = crypto.randomUUID();
+    if (typeof window !== 'undefined') window.sessionStorage.setItem(KEY, newChatId);
+    console.log('🧵 BookAppointmentPage: new chatId generated', newChatId);
+    return newChatId;
+  });
   
   // Recreate transport when chatId changes to ensure it's included in requests
   const transport = useMemo(() => {
@@ -59,6 +59,11 @@ export default function BookAppointmentPage() {
     // Generate a new chat_id for a new chat session
     const newChatId = crypto.randomUUID();
     setChatId(newChatId);
+    try {
+      window.sessionStorage.setItem('bookingChatId', newChatId);
+    } catch {
+      // ignore storage errors
+    }
     // Clear messages to start fresh
     setMessages([
       {

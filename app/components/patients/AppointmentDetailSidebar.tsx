@@ -11,11 +11,12 @@ import { AIChatTab } from "./AIChatTab";
 
 interface AppointmentDetailSidebarProps {
     appointment: any;
+    chatId?: string | null;
 }
 
 type TabValue = 'chat-history' | 'consultation-summary' | 'doctor-report' | 'ai-chat';
 
-export function AppointmentDetailSidebar({ appointment }: AppointmentDetailSidebarProps) {
+export function AppointmentDetailSidebar({ appointment, chatId }: AppointmentDetailSidebarProps) {
     const [activeTab, setActiveTab] = useState<TabValue>('chat-history');
 
     const tabs = [
@@ -56,7 +57,7 @@ export function AppointmentDetailSidebar({ appointment }: AppointmentDetailSideb
             {/* Right Content Area */}
             <div className="lg:col-span-3">
                 {activeTab === 'chat-history' && (
-                    <ChatHistoryTab appointmentId={appointment.id} />
+                    <ChatHistoryTab appointmentId={appointment.id} chatId={chatId || undefined} />
                 )}
                 {activeTab === 'consultation-summary' && (
                     <ConsultationSummaryTab consultation={appointment.consultation} />
