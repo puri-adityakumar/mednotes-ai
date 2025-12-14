@@ -7,20 +7,10 @@ export async function AppointmentList() {
 
     if (!user) return null;
 
-    // Fetch appointments with patient details
+    // Fetch appointments
     const { data: appointments, error } = await supabase
         .from('appointments')
-        .select(`
-            id,
-            appointment_date,
-            status,
-            notes,
-            profiles:patient_id (
-                first_name,
-                last_name,
-                date_of_birth
-            )
-        `)
+        .select('id, appointment_date, status, notes, patient_id')
         .eq('doctor_id', user.id)
         .order('appointment_date', { ascending: true });
 
@@ -29,5 +19,21 @@ export async function AppointmentList() {
         return <div>Error loading appointments</div>;
     }
 
-    return <AppointmentListClient appointments={appointments || []} />;
+    // Fetch patient details for each appointment
+    const appointmentsWithPatients = await Promise.all(
+        (appointments || []).map(async (appointment) => {
+            const { data: patient } = await supabase
+                .from('profiles')
+                .select('first_name, last_name, date_of_birth')
+                .eq('id', appointment.patient_id)
+                .single();
+
+            return {
+                ...appointment,
+                patient: patient || null
+            };
+        })
+    );
+
+    return <AppointmentListClient appointments={appointmentsWithPatients} />;
 }

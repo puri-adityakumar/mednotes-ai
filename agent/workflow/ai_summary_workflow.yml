@@ -1,0 +1,279 @@
+id: ai_summary_workflow
+namespace: ai.workflows
+
+description: |
+  AI-powered medical consultation summary and doctor report generator.
+  This workflow receives consultation data directly from the webapp,
+  processes it with AI, and sends results back via callback webhook.
+
+inputs:
+  - id: consultation_id
+    type: STRING
+    required: true
+    description: The consultation record ID (used for tracking/callback)
+
+  - id: transcript
+    type: STRING
+    required: true
+    description: The consultation transcript from audio recording
+
+  - id: doctor_notes
+    type: STRING
+    required: false
+    description: Doctor's notes from the consultation
+
+  - id: appointment_notes
+    type: STRING
+    required: false
+    description: Notes from the appointment record
+
+  - id: callback_url
+    type: STRING
+    required: true
+    description: Webhook URL to send the AI summary and doctor report back
+
+variables:
+  openrouter_api_key: "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"
+  webhook_secret_key: "jhbjbdjk4654hs"
+
+tasks:
+  - id: prepare_data
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      TRANSCRIPT: "{{ inputs.transcript }}"
+      DOCTOR_NOTES: "{{ inputs.doctor_notes }}"
+      APPOINTMENT_NOTES: "{{ inputs.appointment_notes }}"
+    script: |
+      import os
+
+      transcript = os.environ.get("TRANSCRIPT", "")
+      doctor_notes = os.environ.get("DOCTOR_NOTES", "")
+      appointment_notes = os.environ.get("APPOINTMENT_NOTES", "")
+
+      if not transcript or transcript.strip() == "":
+          raise ValueError("Transcript is required and cannot be empty")
+
+      with open("transcript.txt", "w", encoding="utf-8") as f:
+          f.write(transcript)
+
+      with open("doctor_notes.txt", "w", encoding="utf-8") as f:
+          f.write(doctor_notes if doctor_notes else "No doctor notes available")
+
+      with open("appointment_notes.txt", "w", encoding="utf-8") as f:
+          f.write(appointment_notes if appointment_notes else "No appointment notes available")
+
+      print(f"Data prepared - Transcript: {len(transcript)} chars")
+    outputFiles:
+      - "transcript.txt"
+      - "doctor_notes.txt"
+      - "appointment_notes.txt"
+
+  - id: generate_ai_summary
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      OPENROUTER_API_KEY: "{{ vars.openrouter_api_key }}"
+    inputFiles:
+      transcript.txt: "{{ outputs.prepare_data.outputFiles['transcript.txt'] }}"
+      doctor_notes.txt: "{{ outputs.prepare_data.outputFiles['doctor_notes.txt'] }}"
+      appointment_notes.txt: "{{ outputs.prepare_data.outputFiles['appointment_notes.txt'] }}"
+    beforeCommands:
+      - pip install openai
+    script: |
+      import os
+      from openai import OpenAI
+
+      client = OpenAI(
+          api_key=os.environ["OPENROUTER_API_KEY"],
+          base_url="https://openrouter.ai/api/v1"
+      )
+
+      with open("transcript.txt", "r", encoding="utf-8") as f:
+          transcript = f.read()
+
+      with open("doctor_notes.txt", "r", encoding="utf-8") as f:
+          doctor_notes = f.read()
+
+      with open("appointment_notes.txt", "r", encoding="utf-8") as f:
+          appointment_notes = f.read()
+
+      summary_prompt = "You are a medical AI assistant. Generate a comprehensive consultation summary.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nProvide:\n1. Chief Complaint\n2. Key Symptoms\n3. Examination Findings\n4. Diagnosis\n5. Treatment Plan\n6. Follow-up"
+
+      summary_response = client.chat.completions.create(
+          model="google/gemini-2.0-flash-exp:free",
+          messages=[
+              {"role": "system", "content": "You are a medical AI assistant."},
+              {"role": "user", "content": summary_prompt}
+          ],
+          temperature=0.3,
+          max_tokens=2000
+      )
+
+      ai_summary = summary_response.choices[0].message.content
+
+      with open("ai_summary.txt", "w", encoding="utf-8") as f:
+          f.write(ai_summary)
+
+      print(f"AI Summary generated - {len(ai_summary)} chars")
+    outputFiles:
+      - "ai_summary.txt"
+
+  - id: generate_doctor_report
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      OPENROUTER_API_KEY: "{{ vars.openrouter_api_key }}"
+    inputFiles:
+      transcript.txt: "{{ outputs.prepare_data.outputFiles['transcript.txt'] }}"
+      doctor_notes.txt: "{{ outputs.prepare_data.outputFiles['doctor_notes.txt'] }}"
+      appointment_notes.txt: "{{ outputs.prepare_data.outputFiles['appointment_notes.txt'] }}"
+      ai_summary.txt: "{{ outputs.generate_ai_summary.outputFiles['ai_summary.txt'] }}"
+    beforeCommands:
+      - pip install openai
+    script: |
+      import os
+      from openai import OpenAI
+
+      client = OpenAI(
+          api_key=os.environ["OPENROUTER_API_KEY"],
+          base_url="https://openrouter.ai/api/v1"
+      )
+
+      with open("transcript.txt", "r", encoding="utf-8") as f:
+          transcript = f.read()
+
+      with open("doctor_notes.txt", "r", encoding="utf-8") as f:
+          doctor_notes = f.read()
+
+      with open("appointment_notes.txt", "r", encoding="utf-8") as f:
+          appointment_notes = f.read()
+
+      with open("ai_summary.txt", "r", encoding="utf-8") as f:
+          ai_summary = f.read()
+
+      report_prompt = "Create a professional medical report in Markdown format.\n\nTRANSCRIPT:\n" + transcript + "\n\nDOCTOR NOTES:\n" + doctor_notes + "\n\nAPPOINTMENT NOTES:\n" + appointment_notes + "\n\nAI SUMMARY:\n" + ai_summary + "\n\nInclude sections: Patient Info, Chief Complaint, History, Physical Exam, Assessment, Treatment Plan, Investigations, Follow-up, Additional Notes. Use Markdown formatting."
+
+      report_response = client.chat.completions.create(
+          model="google/gemini-2.0-flash-exp:free",
+          messages=[
+              {"role": "system", "content": "You are a medical AI assistant."},
+              {"role": "user", "content": report_prompt}
+          ],
+          temperature=0.3,
+          max_tokens=3000
+      )
+
+      doctor_report = report_response.choices[0].message.content
+
+      with open("doctor_report.md", "w", encoding="utf-8") as f:
+          f.write(doctor_report)
+
+      print(f"Doctor Report generated - {len(doctor_report)} chars")
+    outputFiles:
+      - "doctor_report.md"
+
+  - id: send_results
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      CALLBACK_URL: "{{ inputs.callback_url }}"
+      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      EXECUTION_ID: "{{ execution.id }}"
+    inputFiles:
+      ai_summary.txt: "{{ outputs.generate_ai_summary.outputFiles['ai_summary.txt'] }}"
+      doctor_report.md: "{{ outputs.generate_doctor_report.outputFiles['doctor_report.md'] }}"
+    beforeCommands:
+      - pip install requests
+    script: |
+      import os
+      import requests
+      from datetime import datetime
+
+      callback_url = os.environ["CALLBACK_URL"]
+      consultation_id = os.environ["CONSULTATION_ID"]
+      execution_id = os.environ["EXECUTION_ID"]
+
+      with open("ai_summary.txt", "r", encoding="utf-8") as f:
+          ai_summary = f.read()
+
+      with open("doctor_report.md", "r", encoding="utf-8") as f:
+          doctor_report = f.read()
+
+      payload = {
+          "consultation_id": consultation_id,
+          "execution_id": execution_id,
+          "ai_summary": ai_summary,
+          "doctor_report": doctor_report,
+          "status": "completed",
+          "processed_at": datetime.utcnow().isoformat() + "Z"
+      }
+
+      max_retries = 3
+      for attempt in range(max_retries):
+          try:
+              response = requests.post(callback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+
+              if response.status_code >= 400:
+                  print(f"Callback failed: {response.status_code}")
+                  if attempt < max_retries - 1:
+                      continue
+                  else:
+                      raise Exception(f"Callback failed: {response.status_code}")
+
+              print(f"Callback sent successfully")
+              break
+
+          except requests.exceptions.RequestException as e:
+              print(f"Request error: {str(e)}")
+              if attempt < max_retries - 1:
+                  continue
+              else:
+                  raise
+
+triggers:
+  - id: webhook_trigger
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "{{ vars.webhook_secret_key }}"
+
+errors:
+  - id: error_handler
+    type: io.kestra.plugin.scripts.python.Script
+    docker:
+      image: python:3.11-slim
+    env:
+      CALLBACK_URL: "{{ inputs.callback_url }}"
+      CONSULTATION_ID: "{{ inputs.consultation_id }}"
+      EXECUTION_ID: "{{ execution.id }}"
+    beforeCommands:
+      - pip install requests
+    script: |
+      import os
+      import requests
+      from datetime import datetime
+
+      callback_url = os.environ.get("CALLBACK_URL")
+      consultation_id = os.environ.get("CONSULTATION_ID")
+      execution_id = os.environ.get("EXECUTION_ID", "unknown")
+
+      if not callback_url:
+          print("No callback URL, skipping")
+          exit(0)
+
+      payload = {
+          "consultation_id": consultation_id,
+          "execution_id": execution_id,
+          "status": "failed",
+          "error": "Workflow failed",
+          "failed_at": datetime.utcnow().isoformat() + "Z"
+      }
+
+      try:
+          response = requests.post(callback_url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+          print(f"Error callback sent: {response.status_code}")
+      except Exception as e:
+          print(f"Failed to send error callback: {e}")
