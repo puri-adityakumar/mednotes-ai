@@ -4,17 +4,35 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { AuthNavbar } from '@/components/AuthNavbar';
 import { Button } from '@/components/ui/button';
-import { Send, Loader2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Send, Loader2, MessageSquarePlus } from 'lucide-react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 
 export default function BookAppointmentPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
+  const [chatId, setChatId] = useState<string | null>(null);
+  
+  // Initialize chat_id on mount (generate new UUID for new chat session)
+  useEffect(() => {
+    if (!chatId) {
+      // Generate a new UUID for this chat session
+      const newChatId = crypto.randomUUID();
+      setChatId(newChatId);
+    }
+  }, [chatId]);
+  
+  // Recreate transport when chatId changes to ensure it's included in requests
+  const transport = useMemo(() => {
+    return new DefaultChatTransport({
+      api: '/api/chat/booking',
+      body: {
+        chatId: chatId || undefined,
+      },
+    });
+  }, [chatId]);
   
   const { messages, sendMessage, status, error, setMessages } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/chat/booking',
-    }),
+    transport,
   });
 
   // Set initial message on mount
@@ -37,10 +55,25 @@ export default function BookAppointmentPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleNewChat = () => {
+    // Generate a new chat_id for a new chat session
+    const newChatId = crypto.randomUUID();
+    setChatId(newChatId);
+    // Clear messages to start fresh
+    setMessages([
+      {
+        id: '1',
+        role: 'assistant',
+        parts: [{ type: 'text', text: "Hello! I'm here to help you book an appointment. What would you like to know?" }],
+      },
+    ]);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <AuthNavbar />
       <main className="flex-1 flex flex-col overflow-hidden">
+      
         {/* Chat Messages Area */}
         <div className="flex-1 overflow-y-auto bg-gray-50 dark:bg-zinc-950">
           <div className="max-w-4xl mx-auto px-4 py-8">

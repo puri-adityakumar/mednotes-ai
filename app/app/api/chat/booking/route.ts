@@ -6,6 +6,93 @@ import { streamText, convertToModelMessages, UIMessage, tool, stepCountIs, custo
 import { z } from 'zod';
 import moment from 'moment-timezone';
 
+/**
+ * Parse date/time string as IST time, handling relative dates like "tomorrow"
+ * This ensures times are treated as IST times (not converted from UTC)
+ */
+function parseDateTimeAsIST(dateStr: string, timeStr: string): moment.Moment | null {
+  const combined = `${dateStr.trim()} ${timeStr.trim()}`;
+  
+  // Get current time in IST for relative date calculations
+  const nowIST = moment.tz('Asia/Kolkata');
+  
+  // Handle relative dates first
+  let processedDate = dateStr.trim().toLowerCase();
+  if (processedDate === 'tomorrow') {
+    processedDate = moment.tz('Asia/Kolkata').add(1, 'day').format('YYYY-MM-DD');
+  } else if (processedDate === 'after tomorrow' || processedDate === 'day after tomorrow') {
+    processedDate = moment.tz('Asia/Kolkata').add(2, 'days').format('YYYY-MM-DD');
+  } else if (processedDate === 'today') {
+    processedDate = moment.tz('Asia/Kolkata').format('YYYY-MM-DD');
+  }
+  
+  // Rebuild combined string with processed date
+  const processedCombined = `${processedDate} ${timeStr.trim()}`;
+  
+  // Multiple format patterns to handle various date/time formats
+  // Times are parsed as IST times (not converted)
+  const formats = [
+    'YYYY-MM-DD h:mm A',           // "2025-12-15 3:00 PM"
+    'YYYY-MM-DD hh:mm A',          // "2025-12-15 03:00 PM"
+    'YYYY-MM-DD HH:mm',            // "2025-12-15 15:00"
+    'DD MMMM YYYY h:mm A',         // "15 december 2025 3:00 PM"
+    'DD MMMM YYYY hh:mm A',        // "15 december 2025 03:00 PM"
+    'DD MMMM YYYY HH:mm',          // "15 december 2025 15:00"
+    'MMMM Do YYYY h:mm A',         // "december 15th 2025 3:00 PM"
+    'MMMM Do YYYY hh:mm A',        // "december 15th 2025 03:00 PM"
+    'MMMM Do YYYY HH:mm',          // "december 15th 2025 15:00"
+    'DD/MM/YYYY h:mm A',           // "15/12/2025 3:00 PM"
+    'DD/MM/YYYY hh:mm A',          // "15/12/2025 03:00 PM"
+    'DD/MM/YYYY HH:mm',            // "15/12/2025 15:00"
+    'MM/DD/YYYY h:mm A',           // "12/15/2025 3:00 PM"
+    'MM/DD/YYYY hh:mm A',          // "12/15/2025 03:00 PM"
+    'MM/DD/YYYY HH:mm',         // "12/15/2025 15:00"
+    'YYYY-MM-DD h A',              // "2025-12-15 3 PM"
+    'DD MMMM YYYY h A',            // "15 december 2025 3 PM"
+    'MMMM Do YYYY h A',            // "december 15th 2025 3 PM"
+  ];
+  
+  // Parse with format array - this ensures times are treated as IST times (not converted)
+  let parsed = moment.tz(processedCombined, formats, 'Asia/Kolkata');
+  
+  // If parsing with formats failed, try moment's natural language parsing
+  // but we need to manually set the time to avoid timezone conversion issues
+  if (!parsed.isValid()) {
+    // First, try to parse just the date part in IST
+    const dateParsed = moment.tz(processedDate, ['YYYY-MM-DD', 'DD MMMM YYYY', 'MMMM Do YYYY', 'DD/MM/YYYY', 'MM/DD/YYYY'], 'Asia/Kolkata');
+    
+    if (dateParsed.isValid()) {
+      // Parse time component manually to avoid timezone conversion
+      const timeMatch = timeStr.trim().match(/(\d{1,2}):?(\d{2})?\s*(AM|PM|am|pm)?/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+        const period = timeMatch[3]?.toUpperCase();
+        
+        // Convert to 24-hour format
+        if (period === 'PM' && hours !== 12) hours += 12;
+        if (period === 'AM' && hours === 12) hours = 0;
+        
+        // Set the time explicitly in IST (no conversion)
+        parsed = dateParsed.hour(hours).minute(minutes).second(0).millisecond(0).tz('Asia/Kolkata', true);
+      } else {
+        // If time parsing fails, try natural language on the full string
+        parsed = moment.tz(processedCombined, 'Asia/Kolkata');
+      }
+    } else {
+      // If date parsing fails, try natural language on the full string
+      parsed = moment.tz(processedCombined, 'Asia/Kolkata');
+      
+      // If still invalid, try original combined string
+      if (!parsed.isValid()) {
+        parsed = moment.tz(combined, 'Asia/Kolkata');
+      }
+    }
+  }
+  
+  return parsed.isValid() ? parsed : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -15,7 +102,7 @@ export async function POST(request: NextRequest) {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    const { messages }: { messages: UIMessage[] } = await request.json();
+    const { messages, chatId }: { messages: UIMessage[]; chatId?: string } = await request.json();
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response('Messages are required', { status: 400 });
@@ -26,6 +113,14 @@ export async function POST(request: NextRequest) {
     const textPart = lastMessage?.parts?.find((p: any) => p.type === 'text');
     const userMessage = (textPart && 'text' in textPart ? textPart.text : '') || '';
 
+    // Generate chat_id if not provided (new chat session)
+    let currentChatId = chatId;
+    if (!currentChatId) {
+      // Generate a new UUID for this chat session
+      const { randomUUID } = await import('crypto');
+      currentChatId = randomUUID();
+    }
+
     // Get patient profile
     const { data: profile } = await supabase
       .from('profiles')
@@ -33,14 +128,21 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    // Get existing booking chat messages for context
-    const { data: chatHistory } = await supabase
-      .from('booking_chat')
-      .select('message, ai_response')
-      .eq('patient_id', user.id)
-      .is('appointment_id', null) // Only get messages not yet linked to an appointment
-      .order('created_at', { ascending: true })
-      .limit(10); // Last 10 messages for context
+    // Save user message immediately (before streaming)
+    try {
+      await supabase
+        .from('booking_chat')
+        .insert({
+          patient_id: user.id,
+          chat_id: currentChatId,
+          role: 'user',
+          message: userMessage,
+        });
+      console.log('✅ User message saved to database');
+    } catch (dbError) {
+      console.error('Error saving user message:', dbError);
+      // Continue even if DB save fails
+    }
 
     // Convert UI messages to model messages format
     const modelMessages = convertToModelMessages(messages);
@@ -110,15 +212,13 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
       }),
       execute: async ({ doctorName, appointmentDate, appointmentTime }) => {
         try {
-          // Parse date/time using moment with IST timezone to ensure consistency
-          const combined = `${appointmentDate.trim()} ${appointmentTime.trim()}`;
-          // Parse in IST timezone (Asia/Kolkata) to ensure 12 PM stays as 12 PM IST
-          const appointmentMoment = moment.tz(combined, 'Asia/Kolkata');
+          // Parse date/time as IST time (handles relative dates like "tomorrow")
+          const appointmentMoment = parseDateTimeAsIST(appointmentDate, appointmentTime);
           
-          if (!appointmentMoment.isValid()) {
+          if (!appointmentMoment || !appointmentMoment.isValid()) {
             return {
               available: false,
-              reason: 'Invalid date or time format.',
+              reason: 'Invalid date or time format. Please provide a valid date and time.',
             };
           }
 
@@ -217,16 +317,14 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
       execute: async ({ doctorName, appointmentDate, appointmentTime, notes }) => {
         console.log('🔧 bookAppointment tool called with:', { doctorName, appointmentDate, appointmentTime, notes });
         try {
-          // Parse date/time using moment with IST timezone to ensure consistency
-          const combined = `${appointmentDate.trim()} ${appointmentTime.trim()}`;
-          // Parse in IST timezone (Asia/Kolkata) to ensure 12 PM stays as 12 PM IST
-          const appointmentMoment = moment.tz(combined, 'Asia/Kolkata');
+          // Parse date/time as IST time (handles relative dates like "tomorrow")
+          const appointmentMoment = parseDateTimeAsIST(appointmentDate, appointmentTime);
           
-          if (!appointmentMoment.isValid()) {
+          if (!appointmentMoment || !appointmentMoment.isValid()) {
             console.log('❌ Invalid date format');
             return {
               success: false,
-              error: 'Invalid date or time format.',
+              error: 'Invalid date or time format. Please provide a valid date and time.',
             };
           }
           
@@ -237,6 +335,7 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
             local: appointmentMoment.format('YYYY-MM-DD HH:mm:ss'),
             iso: appointmentDateTimeISO,
             timezone: appointmentMoment.format('Z'),
+            input: `${appointmentDate} ${appointmentTime}`,
           });
           
           // Find doctor by name (flexible matching)
@@ -372,6 +471,7 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
               .from('booking_chat')
               .update({ appointment_id: appointment.id })
               .eq('patient_id', user.id)
+              .eq('chat_id', currentChatId)
               .is('appointment_id', null);
           } catch (linkError) {
             console.error('Error linking chat to appointment:', linkError);
@@ -436,9 +536,15 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
           }
         },
         onFinish: async ({ text, toolResults, steps }) => {
-          // Save the conversation to database after streaming completes
+          // Save assistant message to database after streaming completes
+          // Skip if already saved (prevents duplicates during fallback)
+          if (assistantMessageSaved) {
+            console.log('⏭️ Groq: Assistant message already saved, skipping');
+            return;
+          }
+          
           try {
-            console.log('🏁 Final onFinish called:', {
+            console.log('🏁 Groq final onFinish called:', {
               textLength: text?.length || 0,
               toolResultsCount: toolResults?.length || 0,
               stepsCount: steps?.length || 0,
@@ -446,9 +552,9 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
 
             // Log tool results for debugging
             if (toolResults && toolResults.length > 0) {
-              console.log('✅ Final tool results:', JSON.stringify(toolResults, null, 2));
+              console.log('✅ Groq final tool results:', JSON.stringify(toolResults, null, 2));
             } else {
-              console.log('⚠️ No tool results in onFinish');
+              console.log('⚠️ Groq: No tool results in onFinish');
             }
 
             // Extract tool results from steps (they're often only in steps, not in toolResults)
@@ -467,9 +573,9 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
                 return [...results, ...contentResults];
               });
               
-              console.log('📋 Tool results from steps:', stepToolResults.length);
+              console.log('📋 Groq tool results from steps:', stepToolResults.length);
               if (stepToolResults.length > 0) {
-                console.log('✅ All tool results from steps:', JSON.stringify(stepToolResults, null, 2));
+                console.log('✅ Groq all tool results from steps:', JSON.stringify(stepToolResults, null, 2));
                 // Merge step results with onFinish results (prefer step results as they're more complete)
                 allToolResults = stepToolResults.length > 0 ? stepToolResults : allToolResults;
               }
@@ -485,21 +591,27 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
             const appointmentId = toolOutput?.appointmentId || null;
             
             if (appointmentResult) {
-              console.log('✅ Appointment booking result found:', toolOutput);
+              console.log('✅ Groq appointment booking result found:', toolOutput);
             } else {
-              console.log('❌ No appointment result found in toolResults or steps');
+              console.log('❌ Groq: No appointment result found in toolResults or steps');
             }
 
+            // Save assistant message as a separate row
             await supabase
               .from('booking_chat')
               .insert({
                 patient_id: user.id,
-                message: userMessage,
-                ai_response: text,
+                chat_id: currentChatId,
+                role: 'assistant',
+                message: text,
                 appointment_id: appointmentId,
               });
+            
+            // Mark as saved to prevent duplicate inserts
+            assistantMessageSaved = true;
+            console.log('✅ Groq: Assistant message saved to database');
           } catch (dbError) {
-            console.error('Error saving booking chat:', dbError);
+            console.error('Groq: Error saving assistant message:', dbError);
             // Continue even if DB save fails
           }
         },
@@ -508,6 +620,8 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
 
     // Track if Google failed so we can fallback to Groq
     let googleFailed = false;
+    // Track if assistant message has been saved to prevent duplicates during fallback
+    let assistantMessageSaved = false;
 
     // Try Google first with error handler
     const googleResult = streamText({
@@ -547,7 +661,13 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
         }
       },
       onFinish: async ({ text, toolResults, steps }) => {
-        // Save the conversation to database after streaming completes
+        // Save assistant message to database after streaming completes
+        // Skip if already saved (prevents duplicates during fallback)
+        if (assistantMessageSaved) {
+          console.log('⏭️ Google: Assistant message already saved, skipping');
+          return;
+        }
+        
         try {
           console.log('🏁 Google final onFinish called:', {
             textLength: text?.length || 0,
@@ -600,16 +720,22 @@ REMEMBER: Text responses do NOT create appointments. Only calling bookAppointmen
             console.log('❌ Google: No appointment result found in toolResults or steps');
           }
 
+          // Save assistant message as a separate row
           await supabase
             .from('booking_chat')
             .insert({
               patient_id: user.id,
-              message: userMessage,
-              ai_response: text,
+              chat_id: currentChatId,
+              role: 'assistant',
+              message: text,
               appointment_id: appointmentId,
             });
+          
+          // Mark as saved to prevent duplicate inserts during fallback
+          assistantMessageSaved = true;
+          console.log('✅ Google: Assistant message saved to database');
         } catch (dbError) {
-          console.error('Error saving booking chat:', dbError);
+          console.error('Google: Error saving assistant message:', dbError);
         }
       },
     });
