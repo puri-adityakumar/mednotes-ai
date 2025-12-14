@@ -1,3 +1,4 @@
+import { AuthNavbar } from "@/components/AuthNavbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -86,235 +87,256 @@ export default async function AppointmentDetailsPage({
     };
 
     return (
-        <div className="max-w-6xl mx-auto space-y-6 p-6">
-            {/* Header */}
-            <div className="flex items-center gap-4">
-                <Link href="/doctor">
-                    <Button variant="outline" size="icon" className="h-9 w-9">
-                        <ArrowLeft className="h-4 w-4" />
-                    </Button>
-                </Link>
-                <div className="flex-1">
-                    <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Appointment Details</h1>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
-                            <span className="font-semibold">Appointment ID:</span> {appointment.id}
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1">
-                            <span className="font-semibold">Patient ID:</span> {appointment.patient_id}
-                        </span>
-                        {consultation && (
-                            <>
-                                <span>•</span>
-                                <span className="flex items-center gap-1">
-                                    <span className="font-semibold">Consultation ID:</span> {consultation.id}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                </div>
-                <Badge variant="outline" className={`text-sm py-1 px-3 border ${getStatusColor(appointment.status)}`}>
-                    {appointment.status.replace('_', ' ').toUpperCase()}
-                </Badge>
-            </div>
-
-            {/* Tabs */}
-            <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-5 lg:w-auto">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="consultation">Consultation</TabsTrigger>
-                    <TabsTrigger value="notes">Doctor Notes</TabsTrigger>
-                    <TabsTrigger value="ai-chat" className="flex items-center gap-2">
-                        <Bot className="h-4 w-4" />
-                        AI Chat
-                    </TabsTrigger>
-                    <TabsTrigger value="reports" disabled>Reports</TabsTrigger>
-                </TabsList>
-
-                {/* Overview Tab */}
-                <TabsContent value="overview" className="space-y-6">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-lg">Patient & Appointment Information</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Patient Info */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 font-semibold">
-                                        <User className="h-4 w-4" />
-                                        <span className="text-sm uppercase">Patient Information</span>
-                                    </div>
-                                    <div className="space-y-3 pl-6">
-                                        <div>
-                                            <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Full Name</span>
-                                            <p className="font-medium text-gray-900 dark:text-gray-200">{patientName}</p>
-                                        </div>
-                                        <div>
-                                            <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Contact</span>
-                                            <p className="text-sm text-gray-700 dark:text-gray-300">{patient?.email || 'No email'}</p>
-                                            <p className="text-sm text-gray-700 dark:text-gray-300">{patient?.phone || 'No phone'}</p>
-                                        </div>
-                                        <div>
-                                            <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Date of Birth</span>
-                                            <p className="text-sm text-gray-700 dark:text-gray-300">{dob}</p>
-                                        </div>
-                                    </div>
+        <div className="flex flex-col min-h-screen bg-background">
+            <AuthNavbar />
+            <main className="flex-1 overflow-y-auto w-full p-8">
+                <div className="max-w-5xl mx-auto space-y-6">
+                    {/* Header */}
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-6 border-b border-gray-100 dark:border-zinc-800">
+                        <div className="flex items-start gap-4">
+                            <Link href="/doctor">
+                                <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-800 shadow-sm transition-all shrink-0">
+                                    <ArrowLeft className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+                                </Button>
+                            </Link>
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Appointment Details</h1>
+                                    <Badge variant="outline" className={`hidden md:inline-flex text-xs font-semibold uppercase tracking-wider py-1 px-3 border-0 ${getStatusColor(appointment.status)}`}>
+                                        {appointment.status.replace('_', ' ')}
+                                    </Badge>
                                 </div>
-
-                                {/* Schedule Info */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 font-semibold">
-                                        <Calendar className="h-4 w-4" />
-                                        <span className="text-sm uppercase">Schedule</span>
+                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500 dark:text-gray-400">
+                                    <div className="flex items-center gap-2 group cursor-help" title="Appointment ID">
+                                        <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                                        <span className="font-medium text-gray-700 dark:text-gray-300">Appt:</span>
+                                        <span className="font-mono text-xs bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">{appointment.id}</span>
                                     </div>
-                                    <div className="space-y-3 pl-6">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm text-gray-500">Date</span>
-                                            <span className="font-medium text-sm text-gray-900 dark:text-gray-200">{dateStr}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm text-gray-500">Time</span>
-                                            <span className="font-medium text-sm text-gray-900 dark:text-gray-200">{timeStr}</span>
-                                        </div>
-                                        {consultation && (
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm text-gray-500">Duration</span>
-                                                <span className="font-medium text-sm text-gray-900 dark:text-gray-200">
-                                                    {consultation.duration_minutes ? `${consultation.duration_minutes} min` : 'N/A'}
-                                                </span>
+                                    <div className="hidden sm:block w-1 h-1 rounded-full bg-gray-300 dark:bg-zinc-700" />
+                                    <div className="flex items-center gap-2 group cursor-help" title="Patient ID">
+                                        <User className="h-3.5 w-3.5 text-gray-400" />
+                                        <span className="font-medium text-gray-700 dark:text-gray-300">Patient:</span>
+                                        <span className="font-mono text-xs bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">{appointment.patient_id}</span>
+                                    </div>
+                                    {consultation && (
+                                        <>
+                                            <div className="hidden sm:block w-1 h-1 rounded-full bg-gray-300 dark:bg-zinc-700" />
+                                            <div className="flex items-center gap-2 group cursor-help" title="Consultation ID">
+                                                <FileText className="h-3.5 w-3.5 text-gray-400" />
+                                                <span className="font-medium text-gray-700 dark:text-gray-300">Consult:</span>
+                                                <span className="font-mono text-xs bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">{consultation.id}</span>
                                             </div>
-                                        )}
-                                    </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Appointment Notes */}
-                            {appointment.notes && (
-                                <div className="pt-4 border-t">
-                                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-3">
-                                        <FileText className="h-4 w-4" />
-                                        <span className="text-sm uppercase">Appointment Notes</span>
+                        <div className="flex items-center gap-3 md:hidden">
+                            <Badge variant="outline" className={`text-xs font-semibold uppercase tracking-wider py-1 px-3 border-0 ${getStatusColor(appointment.status)}`}>
+                                {appointment.status.replace('_', ' ')}
+                            </Badge>
+                        </div>
+                    </div>
+
+                    {/* Tabs */}
+                    <Tabs defaultValue="overview" className="w-full">
+                        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
+                            <TabsTrigger value="overview">Overview</TabsTrigger>
+                            <TabsTrigger value="consultation">Consultation</TabsTrigger>
+                            <TabsTrigger value="notes">Doctor Notes</TabsTrigger>
+                            <TabsTrigger value="ai-chat" className="flex items-center gap-2">
+                                <Bot className="h-4 w-4" />
+                                AI Chat
+                            </TabsTrigger>
+                            <TabsTrigger value="reports" disabled>Reports</TabsTrigger>
+                        </TabsList>
+
+                        {/* Overview Tab */}
+                        <TabsContent value="overview" className="space-y-6">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-lg">Patient & Appointment Information</CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {/* Patient Info */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 font-semibold">
+                                                <User className="h-4 w-4" />
+                                                <span className="text-sm uppercase">Patient Information</span>
+                                            </div>
+                                            <div className="space-y-3 pl-6">
+                                                <div>
+                                                    <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Full Name</span>
+                                                    <p className="font-medium text-gray-900 dark:text-gray-200">{patientName}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Contact</span>
+                                                    <p className="text-sm text-gray-700 dark:text-gray-300">{patient?.email || 'No email'}</p>
+                                                    <p className="text-sm text-gray-700 dark:text-gray-300">{patient?.phone || 'No phone'}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-xs text-gray-500 uppercase font-semibold block mb-1">Date of Birth</span>
+                                                    <p className="text-sm text-gray-700 dark:text-gray-300">{dob}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Schedule Info */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 font-semibold">
+                                                <Calendar className="h-4 w-4" />
+                                                <span className="text-sm uppercase">Schedule</span>
+                                            </div>
+                                            <div className="space-y-3 pl-6">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-sm text-gray-500">Date</span>
+                                                    <span className="font-medium text-sm text-gray-900 dark:text-gray-200">{dateStr}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-sm text-gray-500">Time</span>
+                                                    <span className="font-medium text-sm text-gray-900 dark:text-gray-200">{timeStr}</span>
+                                                </div>
+                                                {consultation && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm text-gray-500">Duration</span>
+                                                        <span className="font-medium text-sm text-gray-900 dark:text-gray-200">
+                                                            {consultation.duration_minutes ? `${consultation.duration_minutes} min` : 'N/A'}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed pl-6">
-                                        {appointment.notes}
-                                    </p>
-                                </div>
-                            )}
 
-                            {/* Actions */}
-                            <div className="pt-4 border-t">
-                                <AppointmentActions
-                                    appointmentId={appointment.id}
-                                    initialStatus={appointment.status}
-                                    consultationId={consultation?.id}
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+                                    {/* Appointment Notes */}
+                                    {appointment.notes && (
+                                        <div className="pt-4 border-t">
+                                            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 font-semibold mb-3">
+                                                <FileText className="h-4 w-4" />
+                                                <span className="text-sm uppercase">Appointment Notes</span>
+                                            </div>
+                                            <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed pl-6">
+                                                {appointment.notes}
+                                            </p>
+                                        </div>
+                                    )}
 
-                {/* Consultation Tab */}
-                <TabsContent value="consultation" className="space-y-6">
-                    {consultation ? (
-                        <>
-                            {consultation.processing_status === 'pending' || consultation.processing_status === 'processing' ? (
-                                <Card className="border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900">
-                                    <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-3">
-                                        <Activity className="h-12 w-12 text-amber-600 animate-pulse" />
-                                        <h3 className="text-xl font-semibold text-amber-800 dark:text-amber-200">Generating Report...</h3>
-                                        <p className="text-sm text-amber-600 dark:text-amber-400 max-w-md">
-                                            The consultation audio is being processed. Summary and insights will appear here shortly.
-                                        </p>
+                                    {/* Actions */}
+                                    <div className="pt-4 border-t">
+                                        <AppointmentActions
+                                            appointmentId={appointment.id}
+                                            initialStatus={appointment.status}
+                                            consultationId={consultation?.id}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+
+                        {/* Consultation Tab */}
+                        <TabsContent value="consultation" className="space-y-6">
+                            {consultation ? (
+                                <>
+                                    {consultation.processing_status === 'pending' || consultation.processing_status === 'processing' ? (
+                                        <Card className="border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-900">
+                                            <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-3">
+                                                <Activity className="h-12 w-12 text-amber-600 animate-pulse" />
+                                                <h3 className="text-xl font-semibold text-amber-800 dark:text-amber-200">Generating Report...</h3>
+                                                <p className="text-sm text-amber-600 dark:text-amber-400 max-w-md">
+                                                    The consultation audio is being processed. Summary and insights will appear here shortly.
+                                                </p>
+                                            </CardContent>
+                                        </Card>
+                                    ) : (
+                                        <>
+                                            {/* AI Summary */}
+                                            <Card>
+                                                <CardHeader className="bg-teal-50/30 dark:bg-teal-900/10">
+                                                    <CardTitle className="text-lg flex items-center gap-2 text-teal-800 dark:text-teal-200">
+                                                        <FileCheck className="h-5 w-5" />
+                                                        AI Consultation Summary
+                                                    </CardTitle>
+                                                </CardHeader>
+                                                <CardContent className="pt-6">
+                                                    <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm bg-gray-50 dark:bg-zinc-900 p-6 rounded-md border border-gray-100 dark:border-zinc-800">
+                                                        {consultation.ai_summary || "No summary generated."}
+                                                    </MessageResponse>
+                                                </CardContent>
+                                            </Card>
+
+                                            {/* Transcript */}
+                                            <Card>
+                                                <CardHeader>
+                                                    <CardTitle className="text-base flex items-center gap-2">
+                                                        <FileAudio className="h-4 w-4" />
+                                                        Transcript
+                                                    </CardTitle>
+                                                </CardHeader>
+                                                <CardContent>
+                                                    <div className="max-h-96 overflow-y-auto text-sm text-gray-600 dark:text-gray-400 p-4 bg-gray-50 dark:bg-zinc-900 rounded border border-gray-100 dark:border-zinc-800 whitespace-pre-wrap font-mono">
+                                                        {consultation.transcript || "No transcript available."}
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        </>
+                                    )}
+                                </>
+                            ) : (
+                                <Card className="border-dashed border-2">
+                                    <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-4">
+                                        <div className="h-16 w-16 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                                            <Clock className="h-8 w-8 text-gray-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Consultation Not Started</h3>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                                There are no consultation records or reports for this appointment yet.
+                                            </p>
+                                        </div>
                                     </CardContent>
                                 </Card>
-                            ) : (
-                                <>
-                                    {/* AI Summary */}
-                                    <Card>
-                                        <CardHeader className="bg-teal-50/30 dark:bg-teal-900/10">
-                                            <CardTitle className="text-lg flex items-center gap-2 text-teal-800 dark:text-teal-200">
-                                                <FileCheck className="h-5 w-5" />
-                                                AI Consultation Summary
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent className="pt-6">
-                                            <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm bg-gray-50 dark:bg-zinc-900 p-6 rounded-md border border-gray-100 dark:border-zinc-800">
-                                                {consultation.ai_summary || "No summary generated."}
-                                            </MessageResponse>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Transcript */}
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle className="text-base flex items-center gap-2">
-                                                <FileAudio className="h-4 w-4" />
-                                                Transcript
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <div className="max-h-96 overflow-y-auto text-sm text-gray-600 dark:text-gray-400 p-4 bg-gray-50 dark:bg-zinc-900 rounded border border-gray-100 dark:border-zinc-800 whitespace-pre-wrap font-mono">
-                                                {consultation.transcript || "No transcript available."}
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                </>
                             )}
-                        </>
-                    ) : (
-                        <Card className="border-dashed border-2">
-                            <CardContent className="p-12 flex flex-col items-center justify-center text-center space-y-4">
-                                <div className="h-16 w-16 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
-                                    <Clock className="h-8 w-8 text-gray-400" />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Consultation Not Started</h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                                        There are no consultation records or reports for this appointment yet.
-                                    </p>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
-                </TabsContent>
+                        </TabsContent>
 
-                {/* Doctor Notes Tab */}
-                <TabsContent value="notes" className="space-y-6">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-lg">Doctor Notes</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            {consultation?.doctor_notes ? (
-                                <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
-                                    {normalizeMarkdown(consultation.doctor_notes)}
-                                </MessageResponse>
-                            ) : (
-                                <div className="text-center py-12">
-                                    <Info className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                                    <p className="text-gray-500 dark:text-gray-400">No doctor notes available.</p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+                        {/* Doctor Notes Tab */}
+                        <TabsContent value="notes" className="space-y-6">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="text-lg">Doctor Notes</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    {consultation?.doctor_notes ? (
+                                        <MessageResponse className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
+                                            {normalizeMarkdown(consultation.doctor_notes)}
+                                        </MessageResponse>
+                                    ) : (
+                                        <div className="text-center py-12">
+                                            <Info className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                                            <p className="text-gray-500 dark:text-gray-400">No doctor notes available.</p>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
 
-                {/* AI Chat Tab */}
-                <TabsContent value="ai-chat" className="space-y-6">
-                    <AIChatTab appointment={appointment} userType="doctor" />
-                </TabsContent>
+                        {/* AI Chat Tab */}
+                        <TabsContent value="ai-chat" className="space-y-6">
+                            <AIChatTab appointment={appointment} userType="doctor" />
+                        </TabsContent>
 
-                {/* Reports Tab (Disabled for now) */}
-                <TabsContent value="reports">
-                    <Card>
-                        <CardContent className="p-12 text-center">
-                            <p className="text-gray-500">Reports feature coming soon...</p>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-            </Tabs>
+                        {/* Reports Tab (Disabled for now) */}
+                        <TabsContent value="reports">
+                            <Card>
+                                <CardContent className="p-12 text-center">
+                                    <p className="text-gray-500">Reports feature coming soon...</p>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+                    </Tabs>
+                </div>
+            </main>
         </div>
     );
 }
